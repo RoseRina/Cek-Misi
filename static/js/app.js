@@ -139,18 +139,18 @@ document.addEventListener("DOMContentLoaded", () => {
   function showToast(message, type = "info") {
     const toast = document.createElement("div");
     toast.className = `toast toast-${type}`;
-    let icon = "ℹ️";
-    if (type === "success") icon = "✅";
-    if (type === "error") icon = "❌";
-    if (type === "warning") icon = "⚠️";
+    let icon = "i";
+    if (type === "success") icon = "✓";
+    if (type === "error") icon = "✕";
+    if (type === "warning") icon = "!";
 
-    toast.innerHTML = `<span>${icon}</span> <span>${message}</span>`;
+    toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-text">${escapeHtml(message)}</span>`;
     el.toastContainer.appendChild(toast);
     setTimeout(() => {
       toast.style.opacity = "0";
-      toast.style.transform = "translateX(30px)";
-      setTimeout(() => toast.remove(), 300);
-    }, 4500);
+      toast.style.transform = "translateY(-10px) scale(0.95)";
+      setTimeout(() => toast.remove(), 250);
+    }, 3800);
   }
 
   function appendLog(message, level = "info") {

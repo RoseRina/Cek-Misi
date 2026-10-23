@@ -917,33 +917,103 @@ input[type="range"] {
 }
 
 /* Toasts */
+/* Clean Floating Neo-Brutalist Toast Notification (Compact Pill) */
 .toast-container {
   position: fixed;
-  bottom: 1rem;
-  left: 1rem;
-  right: 1rem;
-  z-index: 300;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 0.5rem;
   pointer-events: none;
+  width: max-content;
+  max-width: min(90vw, 420px);
 }
+
 .toast {
   pointer-events: auto;
-  padding: 0.75rem 1rem;
+  padding: 0.55rem 1.15rem 0.55rem 0.65rem;
   background-color: #FFFFFF;
-  border: var(--border-thick);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-neo);
+  border: 2.5px solid #121212;
+  border-radius: var(--radius-pill);
+  box-shadow: 3.5px 3.5px 0px #121212;
   font-size: 0.825rem;
   font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--text-dark);
+  animation: toastBounceUp 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1.8px solid #121212;
   display: flex;
   align-items: center;
-  gap: 0.65rem;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 900;
+  flex-shrink: 0;
+  box-shadow: 1px 1px 0px #121212;
 }
-.toast-success { background-color: var(--neo-green-bright); }
-.toast-error   { background-color: var(--neo-pink); color: #FFF; }
-.toast-warning { background-color: var(--neo-yellow); }
+
+.toast-success {
+  background-color: #FFFFFF;
+}
+.toast-success .toast-icon {
+  background-color: var(--neo-green-bright);
+  color: #121212;
+}
+
+.toast-error {
+  background-color: #FFFFFF;
+}
+.toast-error .toast-icon {
+  background-color: var(--neo-pink);
+  color: #FFFFFF;
+}
+
+.toast-warning {
+  background-color: #FFFFFF;
+}
+.toast-warning .toast-icon {
+  background-color: var(--neo-yellow);
+  color: #121212;
+}
+
+.toast-info {
+  background-color: #FFFFFF;
+}
+.toast-info .toast-icon {
+  background-color: var(--neo-cyan);
+  color: #121212;
+}
+
+.toast-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+}
+
+@keyframes toastBounceUp {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 
 .hidden { display: none !important; }
 .font-mono { font-family: var(--font-mono); }
