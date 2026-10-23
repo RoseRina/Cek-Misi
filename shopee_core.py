@@ -19,7 +19,7 @@ import re
 import sys
 
 from telethon import TelegramClient
-from telethon.errors import FloodWaitError
+from telethon.errors import FloodWaitError, ApiIdInvalidError, PhoneNumberInvalidError
 
 TARGET_BOT = "@shp_tools_bot"
 SESSION_NAME = "cek_misi_termux"
@@ -110,11 +110,7 @@ def get_credentials():
             print("❌ API_ID harus berupa angka.")
 
     while True:
-        print("Masukkan API_HASH (32 karakter hex): ", end="", flush=True)
-        api_hash = getpass.getpass("").strip()
-        if not api_hash:
-            # Fallback jika getpass kosong pada beberapa lingkungan
-            api_hash = input().strip()
+        api_hash = input("Masukkan API_HASH (32 karakter hex): ").strip()
         if not re.fullmatch(r"[0-9a-fA-F]{32}", api_hash):
             print("❌ API_HASH harus 32 karakter kombinasi huruf & angka.")
             continue
@@ -139,16 +135,38 @@ def create_client():
 
 async def start_client(client: TelegramClient):
     """Memulai koneksi dan login akun Telegram jika belum login."""
+    if not client.is_connected():
+        await client.connect()
+
     if not await client.is_user_authorized():
         print("\n📱 LOGIN AKUN TELEGRAM")
-        print("Nomor telepon gunakan awalan negara, contoh: +6281234567890")
-        await client.start(
-            phone=lambda: input("Nomor telepon Telegram: ").strip(),
-            code_callback=lambda: input("Kode login dari aplikasi Telegram: ").strip(),
-            password=lambda: getpass.getpass("Password 2FA (Enter jika tidak ada): "),
-        )
-    else:
-        await client.connect()
+        print("Nomor telepon gunakan format internasional dengan awalan kode negara (contoh: +6281234567890)")
+
+        def phone_input():
+            return input("Nomor telepon Telegram: ").strip()
+
+        def code_input():
+            return input("Kode login dari aplikasi Telegram: ").strip()
+
+        def pwd_input():
+            try:
+                return getpass.getpass("Password 2FA (Enter jika tidak ada): ").strip()
+            except Exception:
+                return input("Password 2FA (Enter jika tidak ada): ").strip()
+
+        try:
+            await client.start(
+                phone=phone_input,
+                code_callback=code_input,
+                password=pwd_input,
+            )
+        except ApiIdInvalidError:
+            print("\n❌ API_ID atau API_HASH tidak valid!")
+            print("💡 Silakan reset konfigurasi dengan menu [5] atau jalankan 'python cek_misi_termux.py --reset'")
+            raise
+        except PhoneNumberInvalidError:
+            print("\n❌ Format nomor telepon salah! Pastikan menggunakan kode negara, contoh: +6281234567890.")
+            raise
 
 
 # =====================================================================
