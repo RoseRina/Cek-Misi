@@ -1,0 +1,7 @@
+# Masukkan username Shopee akun Anda di bawah ini
+# Satu baris untuk satu username.
+# Tanda pagar (#) adalah komentar dan akan diabaikan oleh program.
+
+shopee_user_pertama
+shopee_user_kedua
+shopee_user_ketiga

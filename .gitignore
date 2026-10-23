@@ -1,0 +1,28 @@
+# Telethon Session Files (Sangat Rahasia - Jangan di-upload!)
+*.session
+*.session-journal
+
+# Hasil Cek Misi CSV (Data Pribadi)
+hasil_cek_misi.csv
+
+# File Daftar Akun / Username Lokal
+daftar_username.txt
+usernames.txt
+*.secret
+*.txt.bak
+
+# Python Cache & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+env/
+ENV/
+
+# IDE & OS Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
