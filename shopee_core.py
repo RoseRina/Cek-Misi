@@ -40,8 +40,40 @@ RESULT_TIMEOUT = 30
 # PENGELOLAAN KONFIGURASI & SESI TELEGRAM
 # =====================================================================
 
+def load_env_file(env_path: Path = Path(".env")):
+    """Membaca file .env jika ada dan memasukkan ke os.environ jika belum ada."""
+    if env_path.exists():
+        try:
+            with env_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    val = val.strip().strip("'\"")
+                    if key and key not in os.environ:
+                        os.environ[key] = val
+        except Exception:
+            pass
+
+
 def load_credentials():
-    """Memuat API_ID dan API_HASH dari file konfigurasi jika tersedia."""
+    """Memuat API_ID dan API_HASH dari .env, environment variables, atau file konfigurasi."""
+    load_env_file()
+    # 1. Cek dari environment variables (.env atau sistem)
+    env_api_id = os.getenv("TELEGRAM_API_ID") or os.getenv("API_ID")
+    env_api_hash = os.getenv("TELEGRAM_API_HASH") or os.getenv("API_HASH")
+    if env_api_id and env_api_hash:
+        try:
+            api_id = int(env_api_id)
+            api_hash = env_api_hash.strip()
+            if api_id > 0 and re.fullmatch(r"[0-9a-fA-F]{32}", api_hash):
+                return api_id, api_hash
+        except (ValueError, TypeError):
+            pass
+
+    # 2. Cek dari file konfigurasi lokal jika ada
     if CONFIG_FILE.exists():
         try:
             with CONFIG_FILE.open("r", encoding="utf-8") as f:
