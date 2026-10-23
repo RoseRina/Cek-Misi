@@ -42,16 +42,70 @@ Agar web ini bisa diakses siapa saja lewat internet tanpa harus menyalakan PC:
 
 ## 📑 Daftar Isi
 1. [🌐 Panduan Web GUI Universal](#-akses-web-gui-universal-mudah--cepat)
-2. [📱 Syarat & Persiapan Awal](#-syarat--persiapan-awal)
-3. [🔑 Panduan Mendapatkan API ID & API HASH Telegram](#-panduan-mendapatkan-api-id--api-hash-telegram)
-4. [📲 Panduan Lengkap Install di HP Android (Termux)](#-panduan-lengkap-install-di-hp-android-termux)
-5. [🚀 Cara Menjalankan Script (CLI / Terminal)](#-cara-menjalankan-script)
+2. [📦 Panduan Menyiapkan Daftar Akun (Mode Bulk / Massal)](#-panduan-menyiapkan-daftar-akun-mode-bulk--massal)
+3. [📱 Syarat & Persiapan Awal](#-syarat--persiapan-awal)
+4. [🔑 Panduan Mendapatkan API ID & API HASH Telegram](#-panduan-mendapatkan-api-id--api-hash-telegram)
+5. [📲 Panduan Lengkap Install di HP Android (Termux)](#-panduan-lengkap-install-di-hp-android-termux)
+6. [🚀 Cara Menjalankan Script (CLI / Terminal)](#-cara-menjalankan-script)
    - [Menu Utama (Interaktif)](#1-menu-utama-interaktif)
    - [Pengecekan Khusus Voucher Shopee Food (food.py)](#2-pengecekan-khusus-voucher-food-foodpy)
    - [Mode Cepat dengan File (daftar_username.txt / food.txt)](#3-mode-cepat-dengan-file)
-5. [📊 Penjelasan File Output & Hasil](#-penjelasan-file-output--hasil)
-6. [❓ Tanya Jawab & Solusi Error (Troubleshooting)](#-tanya-jawab--solusi-error-troubleshooting)
-7. [🔒 Keamanan & Privasi](#-keamanan--privasi)
+7. [📊 Penjelasan File Output & Hasil](#-penjelasan-file-output--hasil)
+8. [❓ Tanya Jawab & Solusi Error (Troubleshooting)](#-tanya-jawab--solusi-error-troubleshooting)
+9. [🔒 Keamanan & Privasi](#-keamanan--privasi)
+
+---
+
+## 📦 Panduan Menyiapkan Daftar Akun (Mode Bulk / Massal)
+
+Program ini mendukung pengecekan banyak akun sekaligus (hingga ratusan akun) baik lewat **Web Dashboard** maupun lewat **Terminal / Termux**.
+
+### 📝 Aturan Format Penulisan Akun (Sangat Fleksibel):
+- **1 Baris untuk 1 Username** *(Sangat Direkomendasikan)*:
+  ```text
+  shopee_user_pertama
+  shopee_user_kedua
+  shopee_user_ketiga
+  ```
+- **Pemisah Fleksibel:** Anda juga bisa memisahkan username dengan tanda koma (`,`), titik koma (`;`), atau spasi.
+- **Tanda Komentar (`#`):** Baris yang diawali tanda pagar `#` akan otomatis diabaikan oleh program (bisa digunakan untuk memberi catatan atau kategori akun).
+- **Otomatis Hapus Duplikat:** Jika ada username yang tertulis dua kali, sistem otomatis membersihkannya agar tidak dicek berulang.
+
+---
+
+### 🌐 Cara Input Bulk di Web Dashboard (Paling Mudah):
+1. Buka website dashboard (di HP atau Laptop).
+2. Di bagian **"Daftar Akun Shopee"**:
+   * **Opsi A (Upload File):** Klik tombol **Upload .txt** dan pilih file teks akun dari galeri / file manager HP Anda.
+   * **Opsi B (Copy-Paste Langsung):** Salin daftar akun dari aplikasi Catatan / Excel / WhatsApp, lalu tempel (*paste*) langsung ke kotak teks.
+3. Badge counter akan otomatis menampilkan jumlah total akun valid yang siap dicek.
+
+---
+
+### 💻 Cara Menyiapkan File di Termux / Linux / PC:
+Di dalam repositori ini sudah disediakan template file contoh:
+- [`daftar_username.example.txt`](file:///c:/Users/Ferdi/Pictures/vsphone/daftar_username.example.txt) (Template umum)
+- [`food.example.txt`](file:///c:/Users/Ferdi/Pictures/vsphone/food.example.txt) (Template khusus voucher food)
+
+#### 1. Di HP Android (Termux):
+Salin template contoh menjadi file kerja Anda:
+```bash
+# Salin file contoh:
+cp daftar_username.example.txt daftar_username.txt
+
+# Buka dan edit file dengan nano editor:
+nano daftar_username.txt
+```
+* **Cara Edit di Termux:**
+  1. Hapus teks contoh dan tempel/ketik daftar username akun Anda (satu per baris).
+  2. Untuk menyimpan: Tekan tombol **CTRL** lalu tekan **X** di keyboard.
+  3. Ketik **Y** lalu tekan **Enter**. Selesai!
+
+#### 2. Di Komputer (Windows / PC):
+1. Buka folder script ini di File Explorer.
+2. Buat file baru bernama `daftar_username.txt` atau `food.txt` menggunakan **Notepad**.
+3. Tempel daftar akun Anda, lalu klik **Save**.
+4. Script akan otomatis mendeteksi file tersebut saat Anda memilih Menu [4] di terminal!
 
 ---
 
