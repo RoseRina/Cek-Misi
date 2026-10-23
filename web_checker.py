@@ -196,7 +196,9 @@ async def check_food_voucher(
 
         # 5. Tunggu dokumen HTML
         deadline = asyncio.get_running_loop().time() + RESULT_TIMEOUT
-        html_path = download_dir / f"{username}.html"
+        # Sanitasi nama file untuk mencegah directory traversal
+        safe_username = re.sub(r"[^a-zA-Z0-9_\-]", "_", username)[:64] or "user"
+        html_path = download_dir / f"{safe_username}.html"
         file_received = False
 
         while asyncio.get_running_loop().time() < deadline:
@@ -237,8 +239,12 @@ async def check_food_voucher(
                 "has_12k": False,
             }
 
-        # 6. Validasi file HTML
+        # 6. Validasi file HTML lalu langsung hapus file dari server (privasi aman)
         has_25k, has_12k = validate_voucher_html(html_path)
+        try:
+            html_path.unlink(missing_ok=True)
+        except Exception:
+            pass
 
         if has_25k and has_12k:
             status = "MEMENUHI SYARAT"

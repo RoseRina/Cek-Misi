@@ -51,8 +51,8 @@ app = FastAPI(title="Shopee Tools Web Universal", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -62,6 +62,16 @@ TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 SESSION_DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+SESSION_ID_REGEX = re.compile(r"^[a-zA-Z0-9_\-]{8,64}$")
+
+
+def validate_session_id(session_id: str) -> str:
+    """Validasi ketat session ID untuk mencegah path traversal dan injection."""
+    clean = (session_id or "").strip()
+    if not SESSION_ID_REGEX.fullmatch(clean):
+        raise HTTPException(status_code=400, detail="ID Sesi tidak valid atau berpotensi berbahaya.")
+    return clean
+
 
 # =====================================================================
 # IN-MEMORY SESSION STORE (MULTI-USER ISOLATED)
@@ -69,7 +79,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 class UserSession:
     def __init__(self, session_id: str):
-        self.session_id: str = session_id
+        self.session_id: str = validate_session_id(session_id)
         self.api_id: Optional[int] = None
         self.api_hash: Optional[str] = None
         self.phone: Optional[str] = None
@@ -81,7 +91,11 @@ class UserSession:
         self.is_checking: bool = False
         self.stop_requested: bool = False
         self.last_active: float = time.time()
-        self.download_dir: Path = SESSION_DOWNLOADS_DIR / session_id
+        # Isolasi folder unduhan per-sesi di dalam subdirektori aman
+        self.download_dir: Path = (SESSION_DOWNLOADS_DIR / self.session_id).resolve()
+        # Proteksi ekstra: pastikan path tidak keluar dari SESSION_DOWNLOADS_DIR
+        if not str(self.download_dir).startswith(str(SESSION_DOWNLOADS_DIR.resolve())):
+            raise HTTPException(status_code=400, detail="Akses direktori tidak sah.")
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
     def touch(self):
@@ -102,11 +116,40 @@ active_sessions: Dict[str, UserSession] = {}
 
 
 def get_or_create_session(session_id: str) -> UserSession:
-    if session_id not in active_sessions:
-        active_sessions[session_id] = UserSession(session_id)
-    session = active_sessions[session_id]
+    valid_id = validate_session_id(session_id)
+    if valid_id not in active_sessions:
+        active_sessions[valid_id] = UserSession(valid_id)
+    session = active_sessions[valid_id]
     session.touch()
     return session
+
+
+# Background Task: Pembersih sesi kedaluwarsa otomatis (Garbage Collector)
+async def session_garbage_collector():
+    """Membersihkan sesi yang tidak aktif > 1 jam untuk mencegah kebocoran memori."""
+    while True:
+        try:
+            await asyncio.sleep(600)  # Cek setiap 10 menit
+            now = time.time()
+            to_remove = []
+            for s_id, s in list(active_sessions.items()):
+                # Jika tidak sedang mengecek dan sudah tidak aktif lebih dari 1 jam
+                if not s.is_checking and (now - s.last_active > 3600):
+                    to_remove.append(s_id)
+            for s_id in to_remove:
+                s = active_sessions.pop(s_id, None)
+                if s:
+                    await s.disconnect()
+                    if s.download_dir.exists():
+                        shutil.rmtree(s.download_dir, ignore_errors=True)
+                    logger.info(f"[{s_id[:8]}] Sesi kedaluwarsa dibersihkan otomatis.")
+        except Exception as e:
+            logger.error(f"Error session garbage collector: {e}")
+
+
+@app.on_event("startup")
+async def on_startup():
+    asyncio.create_task(session_garbage_collector())
 
 
 # =====================================================================
@@ -344,7 +387,10 @@ async def parse_text_endpoint(req: ParseTextRequest):
 
 @app.post("/api/parse/file")
 async def parse_file_endpoint(file: UploadFile = File(...)):
-    content_bytes = await file.read()
+    MAX_FILE_SIZE = 2 * 1024 * 1024  # 2MB
+    content_bytes = await file.read(MAX_FILE_SIZE + 1)
+    if len(content_bytes) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="Ukuran file terlalu besar. Maksimal 2MB.")
     content = content_bytes.decode("utf-8-sig", errors="ignore")
     usernames = shopee_core.parse_raw_usernames(content)
     return {"ok": True, "filename": file.filename, "count": len(usernames), "usernames": usernames}
@@ -356,6 +402,12 @@ async def parse_file_endpoint(file: UploadFile = File(...)):
 
 @app.websocket("/ws/{session_id}")
 async def websocket_checker(websocket: WebSocket, session_id: str):
+    try:
+        session_id = validate_session_id(session_id)
+    except HTTPException:
+        await websocket.close(code=1008, reason="ID Sesi tidak valid.")
+        return
+
     await websocket.accept()
     session = get_or_create_session(session_id)
     session.touch()
@@ -399,12 +451,22 @@ async def websocket_checker(websocket: WebSocket, session_id: str):
 
                 raw_usernames = message.get("usernames", [])
                 mode = message.get("mode", "both")
-                step_delay = float(message.get("delay", 2.5))
+                # Batasi jeda minimum 1.5 detik dan maksimum 10 detik agar akun Telegram tidak terkena flood/ban
+                step_delay = max(1.5, min(10.0, float(message.get("delay", 2.5))))
 
                 usernames = [u.strip() for u in raw_usernames if u.strip()]
                 if not usernames:
                     await send_json({"type": "error", "message": "Daftar username kosong!"})
                     continue
+
+                # Batasi maksimal 500 akun per batch untuk keamanan memori & koneksi
+                if len(usernames) > 500:
+                    usernames = usernames[:500]
+                    await send_json({
+                        "type": "log",
+                        "level": "warning",
+                        "message": "⚠️ Daftar akun dibatasi maksimal 500 akun per batch demi kestabilan server & akun Telegram Anda.",
+                    })
 
                 # Jalankan pengecekan sebagai background task per-user
                 session.stop_requested = False

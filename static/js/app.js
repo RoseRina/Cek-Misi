@@ -123,8 +123,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // ===================================================================
   function getOrCreateSessionId() {
     let id = localStorage.getItem("shopee_session_id");
-    if (!id) {
-      id = "user_" + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+    if (!id || !/^[a-zA-Z0-9_\-]{16,64}$/.test(id)) {
+      if (window.crypto && crypto.randomUUID) {
+        id = "usr_" + crypto.randomUUID().replace(/-/g, "");
+      } else {
+        const arr = new Uint8Array(16);
+        window.crypto.getRandomValues(arr);
+        id = "usr_" + Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+      }
       localStorage.setItem("shopee_session_id", id);
     }
     return id;
