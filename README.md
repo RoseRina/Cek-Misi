@@ -168,42 +168,62 @@ Akan tampil menu interaktif:
 ======================================================================
      🚀 SHOPEE BOT ALL-IN-ONE (TERMUX & PC AUTOMATION)
 ======================================================================
- 1. 🎯 Cek Misi Bayar QRIS  (Pengecekan Check-in Koin QRIS)
- 2. 🍔 Cek Voucher Shopee Food (Diskon 25RB & Ongkir 12RB)
- 3. ⚡ Cek Keduanya Sekaligus  (Misi QRIS + Voucher Food)
- 4. ⚙️  Reset Pengaturan       (Hapus Sesi & API ID/Hash Telegram)
+ 1. 🎯 Cek Misi Bayar QRIS      (Check-in Koin QRIS Shopee)
+ 2. 🍔 Cek Voucher Shopee Food  (Diskon 25RB & Ongkir 12RB)
+ 3. ⚡ Cek Keduanya Sekaligus   (Misi QRIS + Voucher Food)
+ 4. 📦 MODE MASSAL / BULK CEPAT (Auto-Detect File .txt & Resume)
+ 5. ⚙️  Reset Pengaturan        (Hapus Sesi & API Telegram)
  0. 🚪 Keluar
 ======================================================================
 ```
-- Ketik angka pilihan Anda (contoh: `1` untuk Misi QRIS, `2` untuk Voucher Food, atau `3` untuk Keduanya).
-- Pilih sumber akun: ketik langsung di layar atau baca dari file `.txt`.
 
 ---
 
-### 2. Pengecekan Khusus Voucher Food (`food.py`)
-Jika Anda hanya ingin mengecek voucher makanan Shopee Food (Diskon 25RB & 12RB) dengan tampilan progress bar modern:
-```bash
-python food.py
-```
-Atau jika nama filenya khusus:
-```bash
-python food.py food.txt
-```
+### 2. 📦 Panduan Mode Massal / Bulk (Banyak Akun Sekaligus)
 
----
+Mode ini dirancang khusus untuk memproses puluhan hingga ratusan akun tanpa ribet:
 
-### 3. Mode Cepat dengan File
-Anda bisa langsung menyertakan nama file daftar akun saat menjalankan perintah:
+- **Otomatis Deteksi File `.txt`**:  
+  Cukup letakkan file akun Anda (misal `daftar_username.txt` atau `food.txt`) di folder yang sama. Script akan otomatis mendeteksi nama file dan jumlah akun di dalamnya. Anda cukup memilih nomornya saja tanpa perlu mengetik nama file!
+- **Fitur Auto-Resume (Anti Mengulang dari Nol)**:  
+  Jika proses pengecekan ratusan akun terputus di tengah jalan (misal Termux tertutup atau HP mati), saat dijalankan kembali script akan otomatis menawarkan:
+  `Lewati akun yang sudah ada hasil suksesnya di CSV? (Y/n) [Default: Y]`  
+  Akun yang sudah dicek akan otomatis dilewati dan script langsung melanjutkan akun yang tersisa!
+- **Pengaturan Jeda / Delay**:  
+  Untuk menghindari pembatasan Telegram (*FloodWait*), terdapat jeda aman bawaan 2.5 detik yang bisa Anda sesuaikan jika ingin lebih santai (misal 3-5 detik).
 
+#### Jalankan Mode Bulk Cepat via Terminal:
 ```bash
-# Cek Misi QRIS dari file daftar_username.txt
+# Cek Misi QRIS massal dari file:
 python cek_misi_termux.py daftar_username.txt --mode misi
 
-# Cek Voucher Food dari file food.txt
+# Cek Voucher Food massal dari file:
 python cek_misi_termux.py food.txt --mode food
 
-# Cek Keduanya sekaligus dari file
-python cek_misi_termux.py daftar_username.txt --mode both
+# Cek Keduanya sekaligus dari file dengan jeda 3 detik dan lewati akun yang sudah dicek:
+python cek_misi_termux.py daftar_username.txt --mode both --resume --delay 3
+```
+
+---
+
+### 3. ⚡ Mode Satuan Cepat (Cek 1 Akun Langsung)
+Jika Anda hanya ingin mengecek 1 akun cepat tanpa membuka menu:
+```bash
+# Cek Misi QRIS untuk 1 akun:
+python cek_misi_termux.py --single username_shopee --mode misi
+
+# Cek Voucher Food untuk 1 akun:
+python food.py --single username_shopee
+```
+
+---
+
+### 4. Runner Khusus Voucher Food (`food.py`)
+Bagi Anda yang fokus mengecek voucher Shopee Food (Diskon 25RB & 12RB):
+```bash
+python food.py
+# Atau langsung panggil file akun:
+python food.py food.txt
 ```
 
 <details>
@@ -212,7 +232,7 @@ python cek_misi_termux.py daftar_username.txt --mode both
 
 Pada saat pertama kali dijalankan, script akan menanyakan apakah Anda ingin menyimpan `API_ID` dan `API_HASH` di perangkat.  
 Ketik **Y** (Ya), maka untuk hari-hari berikutnya Anda **tidak perlu repot mengetik ulang API ID & API Hash lagi**!
-File konfigurasi disimpan lokal dan tidak akan terupload ke internet. Jika ingin mengganti akun, cukup pilih menu nomor **4 (Reset Pengaturan)**.
+File konfigurasi disimpan lokal dan tidak akan terupload ke internet. Jika ingin mengganti akun, cukup pilih menu nomor **5 (Reset Pengaturan)**.
 </details>
 
 ---

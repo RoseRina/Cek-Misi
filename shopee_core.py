@@ -152,8 +152,90 @@ async def start_client(client: TelegramClient):
 
 
 # =====================================================================
-# PEMBACAAN DAFTAR USERNAME
+# PEMBACAAN & PENGELOLAAN DAFTAR USERNAME (BULK / MASSAL)
 # =====================================================================
+
+def parse_raw_usernames(text: str):
+    """Mengekstrak username unik dari teks multi-baris, dipisah koma, spasi, atau titik koma."""
+    if not text:
+        return []
+    # Pisahkan berdasarkan baris baru, koma, titik koma, dan spasi
+    tokens = re.split(r"[\r\n,;\t\s]+", text)
+    usernames = []
+    seen = set()
+    for token in tokens:
+        clean = token.strip().strip("'\"")
+        if clean and not clean.startswith("#") and clean not in seen:
+            usernames.append(clean)
+            seen.add(clean)
+    return usernames
+
+
+def get_available_txt_files():
+    """Mencari file .txt di direktori saat ini yang berisi daftar akun."""
+    files = []
+    # File yang dikecualikan dari daftar akun input
+    ignored_names = {
+        VALID_FOOD_FILE.name.casefold(),
+        "requirements.txt",
+    }
+    for p in sorted(Path(".").glob("*.txt")):
+        if p.name.casefold() in ignored_names:
+            continue
+        try:
+            content = p.read_text(encoding="utf-8-sig", errors="ignore")
+            count = len(parse_raw_usernames(content))
+            files.append((p, count))
+        except Exception:
+            pass
+    return files
+
+
+def get_checked_usernames(mode: str = "misi"):
+    """Mengambil daftar username yang sudah berhasil dicek sebelumnya dari file CSV (untuk fitur resume)."""
+    checked = set()
+    target_csv = None
+    if mode == "misi":
+        target_csv = RESULTS_MISI_FILE
+    elif mode == "food":
+        target_csv = RESULTS_FOOD_FILE
+    elif mode == "both":
+        target_csv = RESULTS_ALL_FILE
+
+    if target_csv and target_csv.is_file():
+        try:
+            with target_csv.open("r", encoding="utf-8-sig", errors="ignore") as f:
+                reader = csv.reader(f)
+                header = next(reader, None)
+                for row in reader:
+                    if len(row) >= 4:
+                        user = row[1].strip()
+                        status = row[3].strip().upper() if len(row) > 3 else ""
+                        # Abaikan jika status sebelumnya adalah error koneksi atau flood wait agar bisa diulang
+                        if user and "FLOOD" not in status and "TIMEOUT" not in status and "ERROR" not in status:
+                            checked.add(user)
+        except Exception:
+            pass
+    return checked
+
+
+def filter_unprocessed_usernames(usernames, mode: str = "misi"):
+    """Menyaring username, mengembalikan daftar yang belum pernah dicek dan jumlah yang dilewati."""
+    already_checked = get_checked_usernames(mode)
+    to_process = [u for u in usernames if u not in already_checked]
+    skipped_count = len(usernames) - len(to_process)
+    return to_process, skipped_count
+
+
+def render_progress_bar(current: int, total: int, width: int = 25):
+    """Membuat progress bar ASCII yang rapi untuk terminal."""
+    if total <= 0:
+        return ""
+    percent = (current / total) * 100
+    filled = int(width * current // total)
+    bar = "█" * filled + "░" * (width - filled)
+    return f"[{bar}] {percent:>5.1f}% ({current}/{total})"
+
 
 def read_usernames(filepath=None):
     """Membaca daftar username dari file teks atau interaktif."""
@@ -161,30 +243,28 @@ def read_usernames(filepath=None):
         path = Path(filepath).expanduser()
         if not path.is_file():
             raise ValueError(f"File daftar tidak ditemukan: {path}")
-        lines = path.read_text(encoding="utf-8-sig").splitlines()
+        content = path.read_text(encoding="utf-8-sig")
+        usernames = parse_raw_usernames(content)
     else:
-        print("\nMasukkan username Shopee (satu per baris).")
-        print("Tekan Enter pada baris kosong jika sudah selesai:")
+        print("\nMasukkan username Shopee.")
+        print("(Bisa satu per baris, atau pisahkan dengan koma/spasi).")
+        print("Tekan Enter dua kali (pada baris kosong) jika sudah selesai:")
         lines = []
         while True:
             try:
                 line = input()
             except EOFError:
                 break
-            if not line.strip():
+            if not line.strip() and lines:
                 break
-            lines.append(line)
+            if line.strip():
+                lines.append(line)
+        usernames = parse_raw_usernames("\n".join(lines))
 
-    usernames = []
-    seen = set()
-    for line in lines:
-        username = line.strip()
-        if username and not username.startswith("#") and username not in seen:
-            usernames.append(username)
-            seen.add(username)
     if not usernames:
         raise ValueError("Daftar username kosong.")
     return usernames
+
 
 
 # =====================================================================
