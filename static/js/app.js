@@ -43,12 +43,14 @@ document.addEventListener("DOMContentLoaded", () => {
     btnCopySession: document.getElementById("btn-copy-session"),
     btnLogout: document.getElementById("btn-logout"),
 
-    // Auth Card & Forms
     sectionAuth: document.getElementById("section-auth"),
     tabLoginBtn: document.getElementById("tab-login-btn"),
     tabRestoreBtn: document.getElementById("tab-restore-btn"),
+    tabGuideBtn: document.getElementById("tab-guide-btn"),
     tabLoginContent: document.getElementById("tab-login-content"),
     tabRestoreContent: document.getElementById("tab-restore-content"),
+    tabGuideContent: document.getElementById("tab-guide-content"),
+    btnBackToLogin: document.getElementById("btn-back-to-login"),
     formSendOtp: document.getElementById("form-send-otp"),
     inputApiId: document.getElementById("input-api-id"),
     inputApiHash: document.getElementById("input-api-hash"),
@@ -239,19 +241,33 @@ document.addEventListener("DOMContentLoaded", () => {
   if (state.apiHash) el.restoreApiHash.value = state.apiHash;
   if (state.stringSession) el.restoreString.value = state.stringSession;
 
-  // Tabs for Auth
-  el.tabLoginBtn.addEventListener("click", () => {
-    el.tabLoginBtn.classList.add("active");
-    el.tabRestoreBtn.classList.remove("active");
-    el.tabLoginContent.classList.remove("hidden");
-    el.tabRestoreContent.classList.add("hidden");
-  });
+  // Tabs for Auth (Login, Restore, Guide)
+  function switchAuthTab(target) {
+    el.tabLoginBtn?.classList.remove("active");
+    el.tabRestoreBtn?.classList.remove("active");
+    el.tabGuideBtn?.classList.remove("active");
+    el.tabLoginContent?.classList.add("hidden");
+    el.tabRestoreContent?.classList.add("hidden");
+    el.tabGuideContent?.classList.add("hidden");
 
-  el.tabRestoreBtn.addEventListener("click", () => {
-    el.tabRestoreBtn.classList.add("active");
-    el.tabLoginBtn.classList.remove("active");
-    el.tabRestoreContent.classList.remove("hidden");
-    el.tabLoginContent.classList.add("hidden");
+    if (target === "login") {
+      el.tabLoginBtn?.classList.add("active");
+      el.tabLoginContent?.classList.remove("hidden");
+    } else if (target === "restore") {
+      el.tabRestoreBtn?.classList.add("active");
+      el.tabRestoreContent?.classList.remove("hidden");
+    } else if (target === "guide") {
+      el.tabGuideBtn?.classList.add("active");
+      el.tabGuideContent?.classList.remove("hidden");
+    }
+  }
+
+  el.tabLoginBtn?.addEventListener("click", () => switchAuthTab("login"));
+  el.tabRestoreBtn?.addEventListener("click", () => switchAuthTab("restore"));
+  el.tabGuideBtn?.addEventListener("click", () => switchAuthTab("guide"));
+  el.btnBackToLogin?.addEventListener("click", () => {
+    switchAuthTab("login");
+    el.sectionAuth.scrollIntoView({ behavior: "smooth" });
   });
 
   // Toggle Auth Card

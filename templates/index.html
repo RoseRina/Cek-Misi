@@ -98,6 +98,7 @@
         <div class="auth-tabs">
           <button class="tab-btn active" id="tab-login-btn">Nomor HP + OTP</button>
           <button class="tab-btn" id="tab-restore-btn">StringSession</button>
+          <button class="tab-btn" id="tab-guide-btn">📖 Panduan Buat API</button>
         </div>
 
         <!-- Tab 1: Form Login Standard -->
@@ -166,6 +167,130 @@
               <span class="spinner hidden"></span>
             </button>
           </form>
+        </div>
+
+        <!-- Tab 3: Panduan Buat API ID & Hash (Bahasa Indonesia & Skema Gambar) -->
+        <div id="tab-guide-content" class="tab-pane hidden">
+          <div class="guide-container">
+            <div class="guide-intro-banner">
+              <span class="guide-intro-badge">100% GRATIS & DARI TELEGRAM RESMI</span>
+              <p class="guide-intro-text">
+                <strong>API ID & API HASH</strong> adalah kunci resmi dari Telegram agar script ini bisa berjalan atas nama akun Anda sendiri secara aman. Anda hanya perlu membuatnya <strong>sekali seumur hidup</strong>!
+              </p>
+            </div>
+
+            <!-- Stepper Schema Cards -->
+            <div class="stepper-cards-grid">
+              
+              <!-- Langkah 1 -->
+              <div class="step-card step-card-yellow">
+                <div class="step-card-header">
+                  <span class="step-number">LANGKAH 1</span>
+                  <h4>Buka Situs Resmi Telegram Core</h4>
+                </div>
+                <p class="step-text">Buka browser HP / laptop Anda dan kunjungi situs resmi Telegram:</p>
+                <a href="https://my.telegram.org" target="_blank" rel="noopener noreferrer" class="btn-action-link">
+                  🌐 Buka my.telegram.org ↗
+                </a>
+              </div>
+
+              <!-- Langkah 2 -->
+              <div class="step-card step-card-cyan">
+                <div class="step-card-header">
+                  <span class="step-number">LANGKAH 2</span>
+                  <h4>Masukkan Nomor HP & Kode Login</h4>
+                </div>
+                <p class="step-text">
+                  1. Masukkan nomor HP Telegram dengan awalan <code>+62...</code> lalu klik <strong>Next</strong>.<br>
+                  2. Buka <strong>aplikasi Telegram</strong> Anda, salin kode konfirmasi web dari Telegram.<br>
+                  3. Tempelkan kode ke kolom <strong>Confirmation code</strong> lalu klik <strong>Sign In</strong>.
+                </p>
+                <div class="card-art-box">
+                  <div class="art-titlebar">📱 Gambaran Formulir Login my.telegram.org</div>
+                  <div class="art-body">
+                    <div class="art-line">📞 Your Phone: <span class="art-input-mock">+6281234567890</span></div>
+                    <div class="art-line">🔑 Web Code: <span class="art-input-mock">a1B2c3D4e</span> <span class="art-pill">Cek App Telegram</span></div>
+                    <div class="art-btn-mock">[ Sign In ]</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Langkah 3 -->
+              <div class="step-card step-card-purple">
+                <div class="step-card-header">
+                  <span class="step-number">LANGKAH 3</span>
+                  <h4>Pilih Menu "API development tools"</h4>
+                </div>
+                <p class="step-text">
+                  Setelah berhasil masuk, klik menu paling atas yang bertuliskan:
+                </p>
+                <div class="card-art-box">
+                  <div class="art-body">
+                    <div class="art-menu-item active-menu">👉 <strong>API development tools</strong></div>
+                    <div class="art-menu-item">Delete account</div>
+                    <div class="art-menu-item">Log out</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Langkah 4 -->
+              <div class="step-card step-card-green">
+                <div class="step-card-header">
+                  <span class="step-number">LANGKAH 4</span>
+                  <h4>Isi Formulir Aplikasi Singkat</h4>
+                </div>
+                <p class="step-text">
+                  Isi data aplikasi (bebas, tidak harus nama asli):
+                </p>
+                <div class="card-art-box">
+                  <div class="art-body">
+                    <div class="art-line">🏷️ <strong>App title:</strong> <span class="art-input-mock">Shopee Tools</span></div>
+                    <div class="art-line">🏷️ <strong>Short name:</strong> <span class="art-input-mock">shptools</span></div>
+                    <div class="art-line">📱 <strong>Platform:</strong> <span class="art-input-mock">Web</span></div>
+                    <div class="art-btn-mock btn-green">[ Create application ]</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Langkah 5 -->
+              <div class="step-card step-card-orange">
+                <div class="step-card-header">
+                  <span class="step-number">LANGKAH 5</span>
+                  <h4>🎉 Selesai! Salin API ID & API HASH Anda</h4>
+                </div>
+                <p class="step-text">
+                  Telegram akan langsung menampilkan informasi kunci API Anda persis seperti skema di bawah ini:
+                </p>
+                <div class="card-art-box art-box-highlight">
+                  <div class="art-titlebar">✨ Hasil Jadi di Layar my.telegram.org</div>
+                  <div class="art-body font-mono">
+                    <div class="art-data-row">
+                      <span class="art-label">App api_id:</span>
+                      <span class="art-val-id">12345678</span>
+                      <span class="art-badge-salin">Salin angka ini</span>
+                    </div>
+                    <div class="art-data-row">
+                      <span class="art-label">App api_hash:</span>
+                      <span class="art-val-hash">9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d</span>
+                      <span class="art-badge-salin">Salin 32 karakter ini</span>
+                    </div>
+                  </div>
+                </div>
+                <p class="step-tip">
+                  💡 <strong>Selesai!</strong> Sekarang tinggal salin kedua nilai tersebut dan tempelkan ke tab <strong>Nomor HP + OTP</strong> di atas!
+                </p>
+              </div>
+
+            </div>
+
+            <!-- Tombol Kembali ke Login -->
+            <div class="guide-action-footer">
+              <button type="button" id="btn-back-to-login" class="btn btn-action-start">
+                <span>🚀 Saya Sudah Paham, Ayo Langsung Login!</span>
+              </button>
+            </div>
+
+          </div>
         </div>
       </section>
 
