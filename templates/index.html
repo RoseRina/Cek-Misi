@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Shopee Tools — Mobile Neo-Brutalism</title>
+  <meta name="description" content="Dashboard Web Mobile Neo-Brutalism untuk Cek Misi QRIS & Voucher Shopee Food otomatis via Telegram.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800;900&family=JetBrains+Mono:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <!-- Mobile App Centered Wrapper -->
+  <div class="mobile-app-wrapper">
+
+    <!-- Header Navigation -->
+    <header class="app-header">
+      <div class="header-container">
+        <div class="brand">
+          <div class="brand-logo">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"></path>
+              <path d="M3 6h18"></path>
+              <path d="M16 10a4 4 0 0 1-8 0"></path>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <h1>Shopee Bot <span class="badge-universal">UNIVERSAL</span></h1>
+            <p class="subtitle">Misi QRIS & Shopee Food</p>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <!-- WebSocket Status Badge -->
+          <div id="ws-status" class="status-pill status-offline">
+            <span class="status-dot"></span>
+            <span id="ws-status-text">Hubungkan...</span>
+          </div>
+
+          <!-- Telegram Auth Indicator -->
+          <div id="auth-status-container" class="auth-pill unauthenticated">
+            <span id="auth-status-label">Belum Login</span>
+            <button id="btn-auth-toggle" class="btn-xs">Masuk</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Flow -->
+    <main class="main-content">
+
+      <!-- Telegram Connected Banner (Jika sudah login) -->
+      <section id="banner-connected" class="card connected-banner hidden">
+        <div class="connected-content">
+          <div class="user-avatar" id="user-avatar-text">TG</div>
+          <div class="user-info">
+            <div class="user-name-row">
+              <span class="user-title" id="tg-user-name">Nama Akun</span>
+              <span class="badge-success">Aktif</span>
+            </div>
+            <div class="user-details-row">
+              <span id="tg-user-username">@username</span> • <span id="tg-user-phone">+628...</span>
+            </div>
+          </div>
+        </div>
+        <div class="connected-actions">
+          <button id="btn-copy-session" class="btn-sm" title="Salin Cadangan Sesi String">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+            Cadangan Sesi
+          </button>
+          <button id="btn-logout" class="btn-sm btn-danger-outline">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+            Keluar
+          </button>
+        </div>
+      </section>
+
+      <!-- Telegram Auth Section (Jika belum login) -->
+      <section id="section-auth" class="card auth-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <div class="icon-box icon-orange">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+            </div>
+            <div>
+              <h2>Koneksi Akun Telegram</h2>
+              <p class="card-desc">Login sekali untuk menjalankan bot langsung dari browser</p>
+            </div>
+          </div>
+          <a href="https://my.telegram.org" target="_blank" rel="noopener noreferrer" class="link-help">
+            my.telegram.org ↗
+          </a>
+        </div>
+
+        <!-- Auth Tabs -->
+        <div class="auth-tabs">
+          <button class="tab-btn active" id="tab-login-btn">Nomor HP + OTP</button>
+          <button class="tab-btn" id="tab-restore-btn">StringSession</button>
+        </div>
+
+        <!-- Tab 1: Form Login Standard -->
+        <div id="tab-login-content" class="tab-pane active">
+          <form id="form-send-otp" class="grid-form">
+            <div class="form-group">
+              <label for="input-api-id">API ID</label>
+              <input type="number" id="input-api-id" placeholder="Contoh: 12345678" required>
+            </div>
+            <div class="form-group">
+              <label for="input-api-hash">API HASH</label>
+              <input type="text" id="input-api-hash" placeholder="32 karakter hex..." required>
+            </div>
+            <div class="form-group">
+              <label for="input-phone">Nomor Telegram (+Kode Negara)</label>
+              <div class="input-with-button">
+                <input type="tel" id="input-phone" placeholder="+6281234567890" required>
+                <button type="submit" id="btn-send-otp" class="btn btn-primary">
+                  <span class="btn-text">Kirim Kode OTP</span>
+                  <span class="spinner hidden"></span>
+                </button>
+              </div>
+            </div>
+          </form>
+
+          <!-- Step 2: Input OTP & 2FA -->
+          <div id="otp-container" class="otp-verification-box hidden">
+            <div class="otp-header">
+              <span class="otp-badge">Verifikasi OTP</span>
+              <p id="otp-message-info">Masukkan kode OTP dari aplikasi Telegram:</p>
+            </div>
+            <form id="form-verify-otp" class="grid-form">
+              <div class="form-group">
+                <label for="input-otp">Kode OTP</label>
+                <input type="text" id="input-otp" placeholder="12345" autocomplete="one-time-code" required>
+              </div>
+              <div class="form-group" id="group-2fa">
+                <label for="input-2fa">Password 2FA (Jika ada)</label>
+                <input type="password" id="input-2fa" placeholder="Password verifikasi 2 langkah">
+              </div>
+              <button type="submit" id="btn-verify-otp" class="btn btn-success">
+                <span class="btn-text">Verifikasi & Masuk</span>
+                <span class="spinner hidden"></span>
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Tab 2: Restore via StringSession -->
+        <div id="tab-restore-content" class="tab-pane hidden">
+          <form id="form-restore-session" class="grid-form">
+            <div class="form-group">
+              <label for="restore-api-id">API ID</label>
+              <input type="number" id="restore-api-id" placeholder="12345678" required>
+            </div>
+            <div class="form-group">
+              <label for="restore-api-hash">API HASH</label>
+              <input type="text" id="restore-api-hash" placeholder="32 karakter hex" required>
+            </div>
+            <div class="form-group">
+              <label for="restore-string">StringSession</label>
+              <textarea id="restore-string" rows="3" placeholder="Tempel StringSession Telethon di sini..." required></textarea>
+            </div>
+            <button type="submit" id="btn-restore-session" class="btn btn-primary">
+              <span class="btn-text">Pulihkan Sesi</span>
+              <span class="spinner hidden"></span>
+            </button>
+          </form>
+        </div>
+      </section>
+
+      <!-- Account Input Section -->
+      <section class="card account-input-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <div class="icon-box icon-cyan">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <div>
+              <h3>Daftar Akun Shopee</h3>
+              <p class="card-desc">Tempel username atau unggah file .txt</p>
+            </div>
+          </div>
+          <span id="account-count-badge" class="count-badge">0 Akun</span>
+        </div>
+
+        <div class="textarea-wrapper">
+          <textarea id="textarea-usernames" rows="6" placeholder="Contoh:&#10;user_shopee_1&#10;user_shopee_2&#10;user_shopee_3"></textarea>
+        </div>
+
+        <div class="input-actions-bar">
+          <label class="btn-file-upload">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+            <span>Upload .txt</span>
+            <input type="file" id="file-upload-input" accept=".txt" class="hidden">
+          </label>
+          <button id="btn-sample-data" class="btn-sm">Contoh</button>
+          <button id="btn-clear-accounts" class="btn-ghost text-muted">Bersihkan</button>
+        </div>
+      </section>
+
+      <!-- Mode & Delay Configuration -->
+      <section class="card config-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <div class="icon-box icon-purple">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+            </div>
+            <div>
+              <h3>Pilih Mode Pengecekan</h3>
+              <p class="card-desc">Sesuaikan jenis bot & jeda antar akun</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="mode-options-grid">
+          <label class="mode-card" for="mode-both">
+            <input type="radio" name="check-mode" id="mode-both" value="both" checked>
+            <div class="mode-content">
+              <div class="mode-badge">Rekomendasi</div>
+              <div class="mode-title">⚡ Cek Keduanya Sekaligus</div>
+              <div class="mode-desc">Misi Check-in QRIS + Voucher Food 25RB & 12RB</div>
+            </div>
+          </label>
+
+          <label class="mode-card" for="mode-misi">
+            <input type="radio" name="check-mode" id="mode-misi" value="misi">
+            <div class="mode-content">
+              <div class="mode-title">🎯 Cek Misi QRIS Saja</div>
+              <div class="mode-desc">Status koin & klaim check-in QRIS Shopee</div>
+            </div>
+          </label>
+
+          <label class="mode-card" for="mode-food">
+            <input type="radio" name="check-mode" id="mode-food" value="food">
+            <div class="mode-content">
+              <div class="mode-title">🍔 Cek Voucher Food Saja</div>
+              <div class="mode-desc">Diskon 100% s.d. 25RB & Ongkir 12RB</div>
+            </div>
+          </label>
+        </div>
+
+        <!-- Delay Setting Slider -->
+        <div class="delay-setting-box">
+          <div class="delay-header">
+            <span>Jeda Antar Permintaan:</span>
+            <span id="delay-value-label" class="font-mono">2.5 detik</span>
+          </div>
+          <input type="range" id="input-delay" min="1.5" max="5.0" step="0.5" value="2.5">
+          <div class="delay-hints">
+            <span>Cepat (1.5s)</span>
+            <span>Normal (2.5s)</span>
+            <span>Aman (5.0s)</span>
+          </div>
+        </div>
+
+        <!-- Primary Actions -->
+        <div class="primary-actions-group">
+          <button id="btn-start-check" class="btn btn-action-start">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span>Mulai Pengecekan</span>
+          </button>
+          <button id="btn-stop-check" class="btn btn-action-stop hidden">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><rect width="16" height="16" x="4" y="4" rx="2"/></svg>
+            <span>Hentikan</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Stats Overview 2x2 Grid -->
+      <section class="stats-overview-grid">
+        <div class="stat-card">
+          <div class="stat-icon">📦</div>
+          <div class="stat-info">
+            <span class="stat-label">Total</span>
+            <span id="stat-total" class="stat-value">0</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">⏳</div>
+          <div class="stat-info">
+            <span class="stat-label">Diproses</span>
+            <span id="stat-processed" class="stat-value">0</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">✅</div>
+          <div class="stat-info">
+            <span class="stat-label">Valid / Lolos</span>
+            <span id="stat-valid" class="stat-value">0</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">❌</div>
+          <div class="stat-info">
+            <span class="stat-label">Gagal / Dilewati</span>
+            <span id="stat-invalid" class="stat-value">0</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Progress Bar Realtime -->
+      <div class="progress-bar-container">
+        <div class="progress-meta">
+          <span id="progress-status-text">Siap memulai pengecekan</span>
+          <span id="progress-percent-text" class="font-mono">0%</span>
+        </div>
+        <div class="progress-track">
+          <div id="progress-bar-fill" class="progress-fill" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <!-- Live Console Box (Collapsible) -->
+      <section class="card log-card">
+        <div class="card-header log-header">
+          <div class="card-title-group">
+            <div class="icon-box icon-dark">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
+            </div>
+            <div>
+              <h4>Live Console</h4>
+            </div>
+          </div>
+          <div class="log-actions">
+            <label class="checkbox-label">
+              <input type="checkbox" id="check-autoscroll" checked>
+              <span>Auto-scroll</span>
+            </label>
+            <button id="btn-clear-log" class="btn-ghost text-muted">Bersihkan</button>
+          </div>
+        </div>
+        <div id="log-box" class="console-box">
+          <div class="log-entry log-system">
+            <span class="log-time">[System]</span>
+            <span class="log-msg">Shopee Tools Web Universal siap.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Interactive Results Table -->
+      <section class="card table-card">
+        <div class="card-header table-header-flex">
+          <div class="card-title-group">
+            <div class="icon-box icon-yellow">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+            </div>
+            <div>
+              <h3>Hasil Pengecekan</h3>
+              <p class="card-desc">Verifikasi akun Shopee real-time</p>
+            </div>
+          </div>
+
+          <div class="export-actions-bar">
+            <button id="btn-export-csv" class="btn-sm">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+              CSV
+            </button>
+            <button id="btn-export-valid-txt" class="btn-sm">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              TXT Valid
+            </button>
+            <button id="btn-copy-valid" class="btn-sm btn-primary">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+              Salin Valid
+            </button>
+          </div>
+        </div>
+
+        <div class="table-toolbar">
+          <div class="filter-pills">
+            <button class="pill active" data-filter="all">Semua (<span id="count-all">0</span>)</button>
+            <button class="pill" data-filter="valid">Valid (<span id="count-valid">0</span>)</button>
+            <button class="pill" data-filter="qris-done">QRIS Selesai (<span id="count-qris">0</span>)</button>
+            <button class="pill" data-filter="food-ok">Food Lolos (<span id="count-food">0</span>)</button>
+            <button class="pill" data-filter="failed">Gagal (<span id="count-failed">0</span>)</button>
+          </div>
+          <div class="search-box">
+            <input type="text" id="input-search-table" placeholder="Cari akun...">
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="data-table" id="results-table">
+            <thead>
+              <tr>
+                <th width="40">No</th>
+                <th>Username</th>
+                <th>QRIS</th>
+                <th>Food</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="table-body">
+              <tr class="empty-row" id="row-empty">
+                <td colspan="5" class="text-center text-muted" style="padding: 1.5rem 0.5rem;">
+                  Belum ada hasil pengecekan.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Modal Backup String Session -->
+    <div id="modal-session" class="modal-overlay hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Cadangan StringSession</h3>
+          <button id="modal-session-close" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc">
+            Simpan StringSession ini untuk login instan di perangkat lain tanpa perlu minta OTP lagi:
+          </p>
+          <textarea id="modal-session-text" rows="5" readonly class="font-mono text-xs"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-copy-modal-session" class="btn btn-primary" style="width: 100%;">Salin ke Clipboard</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notification Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Mobile Footer -->
+    <footer class="app-footer">
+      <p>Shopee Tools Universal &bull; Mobile Neo-Brutalism &bull; Telethon</p>
+    </footer>
+
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

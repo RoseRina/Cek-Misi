@@ -1,13 +1,39 @@
-# 🎯 Shopee Tools Bot All-in-One (Termux & PC)
+# 🎯 Shopee Tools Bot All-in-One & Web Universal
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Web_GUI-FastAPI_Dashboard-00e5ff?style=for-the-badge&logo=fastapi&logoColor=white" alt="Web GUI" />
   <img src="https://img.shields.io/badge/Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3" />
   <img src="https://img.shields.io/badge/Android-Termux-black?style=for-the-badge&logo=android&logoColor=white" alt="Termux" />
   <img src="https://img.shields.io/badge/Telethon-Telegram_Client-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white" alt="Telethon" />
   <img src="https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge" alt="Status" />
 </p>
 
-Tools otomatisasi terpadu berbasis **Python & Telethon** untuk HP Android (Termux) dan PC. Terintegrasi penuh dengan bot Telegram `@shp_tools_bot` dalam satu kesatuan sistem untuk:
+Tools otomatisasi terpadu berbasis **Python & Telethon** yang kini dilengkapi **Web GUI Dashboard Universal** (tanpa perlu repot mengetik perintah di terminal). Cukup masukkan `API ID`, `API HASH`, dan `Nomor Telegram` langsung lewat tampilan web!
+
+### 🌐 Akses Web GUI Universal (Mudah & Cepat)
+Cukup jalankan:
+```bash
+# Di Windows (Tinggal klik 2x):
+run_web.bat
+
+# Atau via Python:
+python server.py
+```
+Lalu buka browser Anda di: **`http://localhost:8000`** (atau dari HP melalui IP lokal Anda).
+
+### ☁️ Cara Deploy Online 24 Jam (Gratis di Render.com)
+Agar web ini bisa diakses siapa saja lewat internet tanpa harus menyalakan PC:
+1. **Push folder ini ke repository GitHub Anda.**
+2. Buka **[Render.com](https://render.com)** dan buat akun gratis (bisa login dengan akun GitHub).
+3. Klik tombol **New +** > pilih **Web Service** > pilih repository GitHub Anda.
+4. Render akan otomatis mendeteksi konfigurasi:
+   - **Environment:** `Python 3`
+   - **Build Command:** `pip install -r requirements.txt`
+   - **Start Command:** `uvicorn server:app --host 0.0.0.0 --port $PORT`
+5. Klik **Create Web Service**. Dalam 1-2 menit, web Anda sudah live dengan URL publik (contoh: `https://nama-web-anda.onrender.com`)!
+
+---
+
 1. 🎯 **Cek Misi Bayar QRIS (Check-in Koin Shopee)**: Memeriksa progres koin bayar QRIS per akun dan mencatat hasilnya rapi ke CSV.
 2. 🍔 **Cek Voucher Shopee Food (Diskon 25RB & 12RB)**: Memeriksa ketersediaan voucher makanan (Diskon 100% s.d. 25RB & Diskon Ongkir 12RB tanpa minimum belanja), menyimpan akun yang lolos ke `valid_food.txt` dan rekap lengkap ke CSV.
 3. ⚡ **Cek Keduanya Sekaligus**: Memeriksa Misi QRIS dan Voucher Food secara otomatis bergantian untuk setiap akun.
@@ -15,10 +41,11 @@ Tools otomatisasi terpadu berbasis **Python & Telethon** untuk HP Android (Termu
 ---
 
 ## 📑 Daftar Isi
-1. [📱 Syarat & Persiapan Awal](#-syarat--persiapan-awal)
-2. [🔑 Panduan Mendapatkan API ID & API HASH Telegram](#-panduan-mendapatkan-api-id--api-hash-telegram)
-3. [📲 Panduan Lengkap Install di HP Android (Termux)](#-panduan-lengkap-install-di-hp-android-termux)
-4. [🚀 Cara Menjalankan Script](#-cara-menjalankan-script)
+1. [🌐 Panduan Web GUI Universal](#-akses-web-gui-universal-mudah--cepat)
+2. [📱 Syarat & Persiapan Awal](#-syarat--persiapan-awal)
+3. [🔑 Panduan Mendapatkan API ID & API HASH Telegram](#-panduan-mendapatkan-api-id--api-hash-telegram)
+4. [📲 Panduan Lengkap Install di HP Android (Termux)](#-panduan-lengkap-install-di-hp-android-termux)
+5. [🚀 Cara Menjalankan Script (CLI / Terminal)](#-cara-menjalankan-script)
    - [Menu Utama (Interaktif)](#1-menu-utama-interaktif)
    - [Pengecekan Khusus Voucher Shopee Food (food.py)](#2-pengecekan-khusus-voucher-food-foodpy)
    - [Mode Cepat dengan File (daftar_username.txt / food.txt)](#3-mode-cepat-dengan-file)
