@@ -2,14 +2,26 @@
 *.session
 *.session-journal
 
-# Hasil Cek Misi CSV (Data Pribadi)
+# Konfigurasi Lokal API Telegram
+telegram_config.json
+.env
+
+# Hasil Output Pengecekan (Data Pribadi)
 hasil_cek_misi.csv
+hasil_voucher_food.csv
+hasil_gabungan.csv
+valid_food.txt
 
 # File Daftar Akun / Username Lokal
 daftar_username.txt
+food.txt
 usernames.txt
 *.secret
 *.txt.bak
+
+# Unduhan File HTML Voucher
+downloads/
+*.html
 
 # Python Cache & Virtual Environments
 __pycache__/

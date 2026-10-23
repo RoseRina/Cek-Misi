@@ -1,0 +1,6 @@
+# Daftar username/ID akun Shopee untuk pengecekan Voucher Shopee Food (25k & 12k)
+# Satu baris untuk satu akun.
+
+akun_shopee_pertama
+akun_shopee_kedua
+akun_shopee_ketiga

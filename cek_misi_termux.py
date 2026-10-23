@@ -1,231 +1,246 @@
 #!/usr/bin/env python3
-"""Standalone Cek Misi (Bayar QRIS) client for Android Termux.
+"""Shopee Tools All-in-One: Cek Misi QRIS & Cek Voucher Shopee Food.
 
-Install in Termux with:
-    pkg install python
-    python -m pip install telethon
-
-Run interactively:
+Mendukung eksekusi di Android Termux & PC.
+Bisa dijalankan interaktif:
     python cek_misi_termux.py
 
-Or provide a UTF-8 text file with one Shopee username per line:
+Atau dengan file daftar akun:
     python cek_misi_termux.py daftar_username.txt
-
-The script signs in to Telegram using your own API ID and API Hash. The
-Telethon session is stored in ./cek_misi_termux.session. Results are appended
-to ./hasil_cek_misi.csv.
+    python cek_misi_termux.py food.txt --mode food
 """
 
+import argparse
 import asyncio
-import csv
-from datetime import datetime
-import getpass
-import re
-import sys
 from pathlib import Path
+import sys
 
-from telethon import TelegramClient
 from telethon.errors import FloodWaitError
 
+import shopee_core
 
-TARGET_BOT = "@shp_tools_bot"
-SESSION_NAME = "cek_misi_termux"
-RESULTS_FILE = Path("hasil_cek_misi.csv")
-STEP_DELAY = 3.0
-POLL_INTERVAL = 0.5
-MISSION_BUTTON_TIMEOUT = 15
-RESULT_TIMEOUT = 30
-
-
-def read_usernames():
-    if len(sys.argv) > 1:
-        path = Path(sys.argv[1]).expanduser()
-        if not path.is_file():
-            raise ValueError(f"File daftar tidak ditemukan: {path}")
-        lines = path.read_text(encoding="utf-8-sig").splitlines()
-    else:
-        print("Masukkan username Shopee, satu per baris. Tekan Enter pada baris kosong untuk mulai:")
-        lines = []
-        while True:
-            try:
-                line = input()
-            except EOFError:
-                break
-            if not line.strip():
-                break
-            lines.append(line)
-
-    usernames = []
-    seen = set()
-    for line in lines:
-        username = line.strip()
-        if username and not username.startswith("#") and username not in seen:
-            usernames.append(username)
-            seen.add(username)
-    if not usernames:
-        raise ValueError("Daftar username kosong.")
-    return usernames
+# Inisialisasi pewarnaan terminal (fallback aman jika colorama/rich tidak terpasang)
+try:
+    from colorama import init, Fore, Style
+    init(autoreset=True)
+    CYAN = Fore.CYAN
+    GREEN = Fore.GREEN
+    YELLOW = Fore.YELLOW
+    RED = Fore.RED
+    WHITE = Fore.WHITE
+    BOLD = Style.BRIGHT
+    RESET = Style.RESET_ALL
+except ImportError:
+    CYAN = "\033[96m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    RED = "\033[91m"
+    WHITE = "\033[97m"
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
 
 
-def save_result(username, coins, status, detail):
-    file_exists = RESULTS_FILE.exists() and RESULTS_FILE.stat().st_size > 0
-    with RESULTS_FILE.open("a", newline="", encoding="utf-8-sig") as stream:
-        writer = csv.writer(stream)
-        if not file_exists:
-            writer.writerow(["Tanggal & Waktu", "Username", "Koin Bayar QRIS", "Status", "Keterangan"])
-        writer.writerow([
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            username,
-            coins if coins is not None else "-",
-            status,
-            detail or "-",
-        ])
+def print_banner():
+    banner = f"""
+{CYAN}{BOLD}======================================================================
+     🚀 SHOPEE BOT ALL-IN-ONE (TERMUX & PC AUTOMATION)
+======================================================================{RESET}
+ {WHITE}1.{RESET} 🎯 {BOLD}Cek Misi Bayar QRIS{RESET}  (Pengecekan Check-in Koin QRIS)
+ {WHITE}2.{RESET} 🍔 {BOLD}Cek Voucher Shopee Food{RESET} (Diskon 25RB & Ongkir 12RB)
+ {WHITE}3.{RESET} ⚡ {BOLD}Cek Keduanya Sekaligus{RESET}  (Misi QRIS + Voucher Food)
+ {WHITE}4.{RESET} ⚙️  {BOLD}Reset Pengaturan{RESET}       (Hapus Sesi & API ID/Hash Telegram)
+ {WHITE}0.{RESET} 🚪 {BOLD}Keluar{RESET}
+{CYAN}======================================================================{RESET}
+"""
+    print(banner)
 
 
-def error_status(text):
-    normalized = " ".join((text or "").casefold().split())
-    if "akun ini sedang dibatasi" in normalized and "banned" in normalized:
-        return "GAGAL"
-    if "akun tidak ditemukan" in normalized:
-        return "AKUN TIDAK DITEMUKAN"
-    if "cookie tidak valid" in normalized:
-        return "GAGAL"
-    if "akun ini bukan milikmu" in normalized:
-        return "GAGAL"
-    return None
+async def run_misi_mode(client, usernames):
+    print(f"\n{YELLOW}{BOLD}▶ Memulai Pengecekan Misi Bayar QRIS untuk {len(usernames)} akun...{RESET}\n")
+    success_count = 0
+    fail_count = 0
 
+    for idx, user in enumerate(usernames, 1):
+        print(f"{CYAN}[{idx}/{len(usernames)}]{RESET} {BOLD}{user}{RESET}")
+        try:
+            coins, status, detail = await shopee_core.check_one_mission(client, user)
+            shopee_core.save_mission_result(user, coins, status, detail)
 
-def parse_qris_result(text):
-    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
-    qris_lines = [line for line in lines if "bayar qris" in line.casefold()]
-    if not qris_lines:
-        return None
-    line = qris_lines[0]
-    matches = re.findall(r"(?<!\d)([\d.,\s]+)\s*koin\b", line, re.IGNORECASE)
-    amount = None
-    for raw_amount in matches:
-        digits = re.sub(r"\D", "", raw_amount)
-        if digits:
-            amount = int(digits)
+            if coins is not None:
+                color = GREEN if status == "SELESAI" else YELLOW
+                print(f"  └─ {color}{BOLD}Bayar QRIS: {coins:,} koin | {status}{RESET}\n")
+                success_count += 1
+            else:
+                print(f"  └─ {RED}{status}: {detail}{RESET}\n")
+                fail_count += 1
+        except FloodWaitError as exc:
+            msg = f"Telegram meminta jeda {exc.seconds} detik. Antrean dihentikan."
+            shopee_core.save_mission_result(user, None, "FLOOD_WAIT", msg)
+            print(f"  └─ {RED}FloodWait {exc.seconds}s. Antrean dihentikan.{RESET}\n")
             break
-    if amount is None:
-        return None
-    status = "BELUM SELESAI" if "belum" in line.casefold() else "SELESAI"
-    return amount, status, line
+        except Exception as exc:
+            shopee_core.save_mission_result(user, None, "ERROR", str(exc))
+            print(f"  └─ {RED}Error: {exc}{RESET}\n")
+            fail_count += 1
+
+        if idx < len(usernames):
+            await asyncio.sleep(shopee_core.STEP_DELAY)
+
+    print(f"{CYAN}{BOLD}--- LAPORAN SELESAI ---{RESET}")
+    print(f"Total: {len(usernames)} | Berhasil/Ada: {success_count} | Gagal/Kosong: {fail_count}")
+    print(f"📂 Hasil tersimpan di: {shopee_core.RESULTS_MISI_FILE.resolve()}\n")
 
 
-async def wait_for_button(client, after_id, matches, timeout):
-    deadline = asyncio.get_running_loop().time() + timeout
-    while asyncio.get_running_loop().time() < deadline:
-        messages = await client.get_messages(TARGET_BOT, limit=10)
-        candidates = sorted(
-            (message for message in messages if message.id > after_id and message.buttons),
-            key=lambda message: message.id,
-        )
-        for message in candidates:
-            for row_index, row in enumerate(message.buttons):
-                for column_index, button in enumerate(row):
-                    label = (button.text or "").casefold()
-                    if matches(label):
-                        return message, row_index, column_index, button.text
-        await asyncio.sleep(POLL_INTERVAL)
-    return None
+async def run_food_mode(client, usernames):
+    print(f"\n{YELLOW}{BOLD}▶ Memulai Pengecekan Voucher Shopee Food untuk {len(usernames)} akun...{RESET}\n")
+    valid_count = 0
+    invalid_count = 0
+    valid_list = []
+
+    for idx, user in enumerate(usernames, 1):
+        print(f"{CYAN}[{idx}/{len(usernames)}]{RESET} {BOLD}{user}{RESET}")
+        try:
+            is_valid, status, detail, has_25k, has_12k = await shopee_core.check_one_food(client, user)
+            shopee_core.save_food_result(user, is_valid, status, detail, has_25k, has_12k)
+
+            if is_valid:
+                print(f"  └─ {GREEN}{BOLD}✅ {status} ({detail}){RESET}\n")
+                valid_count += 1
+                valid_list.append(user)
+            elif status == "PARSIAL":
+                print(f"  └─ {YELLOW}⚠️ {status} ({detail}){RESET}\n")
+                invalid_count += 1
+            else:
+                print(f"  └─ {RED}❌ {status} ({detail}){RESET}\n")
+                invalid_count += 1
+        except FloodWaitError as exc:
+            msg = f"Telegram meminta jeda {exc.seconds} detik. Antrean dihentikan."
+            shopee_core.save_food_result(user, False, "FLOOD_WAIT", msg, False, False)
+            print(f"  └─ {RED}FloodWait {exc.seconds}s. Antrean dihentikan.{RESET}\n")
+            break
+        except Exception as exc:
+            shopee_core.save_food_result(user, False, "ERROR", str(exc), False, False)
+            print(f"  └─ {RED}Error: {exc}{RESET}\n")
+            invalid_count += 1
+
+        if idx < len(usernames):
+            await asyncio.sleep(shopee_core.STEP_DELAY)
+
+    print(f"{CYAN}{BOLD}--- LAPORAN HASIL VOUCHER SHOPEE FOOD ---{RESET}")
+    print(f"🎯 Total Akun       : {len(usernames)}")
+    print(f"{GREEN}✅ Memenuhi Syarat  : {valid_count}{RESET}")
+    print(f"{YELLOW}⚠️ Belum Memenuhi   : {invalid_count}{RESET}")
+    if valid_list:
+        print(f"\n{GREEN}{BOLD}Daftar Akun Memenuhi Syarat:{RESET}")
+        for u in valid_list:
+            print(f"  • {u}")
+    print(f"\n📂 Akun valid disimpan di : {shopee_core.VALID_FOOD_FILE.resolve()}")
+    print(f"📂 Rincian CSV disimpan di: {shopee_core.RESULTS_FOOD_FILE.resolve()}\n")
 
 
-async def check_one_mission(client, username):
-    previous = await client.get_messages(TARGET_BOT, limit=1)
-    start_id = previous[0].id if previous else 0
-    command = await client.send_message(TARGET_BOT, "/mission")
-    start_id = max(start_id, command.id)
-    await asyncio.sleep(STEP_DELAY)
+async def run_both_mode(client, usernames):
+    print(f"\n{YELLOW}{BOLD}▶ Memulai Pengecekan Keduanya (Misi QRIS + Voucher Food) untuk {len(usernames)} akun...{RESET}\n")
 
-    checkin = await wait_for_button(
-        client,
-        start_id,
-        lambda label: "checkin" in label or "check-in" in label or "check in" in label,
-        MISSION_BUTTON_TIMEOUT,
-    )
-    if not checkin:
-        return None, "GAGAL", "Pilihan Misi Checkin tidak ditemukan"
-    message, row_index, column_index, label = checkin
-    print(f"  Memilih misi: {label}")
-    await message.click(row_index, column_index)
-    start_id = message.id
-    await asyncio.sleep(STEP_DELAY)
+    for idx, user in enumerate(usernames, 1):
+        print(f"{CYAN}[{idx}/{len(usernames)}]{RESET} {BOLD}{user}{RESET}")
+        try:
+            # 1. Cek Misi QRIS
+            print(f"  [1/2] Memeriksa Misi QRIS...")
+            coins, m_status, m_detail = await shopee_core.check_one_mission(client, user)
+            shopee_core.save_mission_result(user, coins, m_status, m_detail)
+            if coins is not None:
+                color = GREEN if m_status == "SELESAI" else YELLOW
+                print(f"        └─ {color}Bayar QRIS: {coins:,} koin | {m_status}{RESET}")
+            else:
+                print(f"        └─ {RED}{m_status}: {m_detail}{RESET}")
 
-    login_option = await wait_for_button(
-        client,
-        start_id - 1,
-        lambda label: any(term in label for term in ("username", "email", "user id", "id akun"))
-        and "cookie" not in label,
-        MISSION_BUTTON_TIMEOUT,
-    )
-    if not login_option:
-        return None, "GAGAL", "Opsi Username / Email / ID tidak ditemukan"
-    message, row_index, column_index, label = login_option
-    print(f"  Memilih login: {label}")
-    await message.click(row_index, column_index)
-    await asyncio.sleep(STEP_DELAY)
+            await asyncio.sleep(shopee_core.STEP_DELAY)
 
-    sent_user = await client.send_message(TARGET_BOT, username)
-    last_seen = {}
-    deadline = asyncio.get_running_loop().time() + RESULT_TIMEOUT
-    while asyncio.get_running_loop().time() < deadline:
-        messages = await client.get_messages(TARGET_BOT, limit=15)
-        for message in sorted((item for item in messages if item.id > sent_user.id), key=lambda item: item.id):
-            text = (message.text or "").strip()
-            if not text or last_seen.get(message.id) == text:
-                continue
-            last_seen[message.id] = text
-            status = error_status(text)
-            if status:
-                return None, status, text
-            result = parse_qris_result(text)
-            if result:
-                return result
-        await asyncio.sleep(POLL_INTERVAL)
-    return None, "GAGAL", "Timeout menunggu hasil Misi Checkin / Bayar QRIS"
+            # 2. Cek Voucher Food
+            print(f"  [2/2] Memeriksa Voucher Shopee Food...")
+            is_valid, f_status, f_detail, has_25k, has_12k = await shopee_core.check_one_food(client, user)
+            shopee_core.save_food_result(user, is_valid, f_status, f_detail, has_25k, has_12k)
+            if is_valid:
+                print(f"        └─ {GREEN}✅ {f_status} ({f_detail}){RESET}\n")
+            else:
+                print(f"        └─ {YELLOW}⚠️ {f_status} ({f_detail}){RESET}\n")
+
+            # 3. Simpan laporan gabungan
+            shopee_core.save_combined_result(user, coins, m_status, f_status, f_detail)
+
+        except FloodWaitError as exc:
+            print(f"  └─ {RED}Telegram FloodWait {exc.seconds}s. Antrean dihentikan.{RESET}\n")
+            break
+        except Exception as exc:
+            print(f"  └─ {RED}Error: {exc}{RESET}\n")
+
+        if idx < len(usernames):
+            await asyncio.sleep(shopee_core.STEP_DELAY)
+
+    print(f"{CYAN}{BOLD}--- PENGECEKAN GABUNGAN SELESAI ---{RESET}")
+    print(f"📂 Hasil lengkap gabungan tersimpan di: {shopee_core.RESULTS_ALL_FILE.resolve()}\n")
 
 
 async def main():
-    usernames = read_usernames()
-    try:
-        api_id = int(input("API_ID Telegram: ").strip())
-    except ValueError as exc:
-        raise ValueError("API_ID harus berupa angka.") from exc
-    if api_id <= 0:
-        raise ValueError("API_ID harus angka positif.")
-    api_hash = getpass.getpass("API_HASH Telegram: ").strip()
-    if not re.fullmatch(r"[0-9a-fA-F]{32}", api_hash):
-        raise ValueError("API_HASH harus berisi 32 karakter heksadesimal.")
+    parser = argparse.ArgumentParser(description="Shopee Tools Bot All-in-One")
+    parser.add_argument("file", nargs="?", default=None, help="File berisi daftar username Shopee")
+    parser.add_argument("--mode", choices=["misi", "food", "both"], help="Mode pengecekan langsung")
+    parser.add_argument("--reset", action="store_true", help="Reset konfigurasi dan sesi Telegram tersimpan")
+    args = parser.parse_args()
 
-    client = TelegramClient(SESSION_NAME, api_id, api_hash)
-    try:
-        await client.start(
-            phone=lambda: input("Nomor telepon Telegram (format +62...): ").strip(),
-            code_callback=lambda: input("Kode login Telegram: ").strip(),
-            password=lambda: getpass.getpass("Password verifikasi dua langkah: "),
-        )
-        print(f"\nLogin Telegram berhasil. Memeriksa {len(usernames)} username. Hasil: {RESULTS_FILE.resolve()}\n")
-        for index, username in enumerate(usernames, start=1):
-            print(f"[{index}/{len(usernames)}] {username}")
-            try:
-                coins, status, detail = await check_one_mission(client, username)
-                save_result(username, coins, status, detail)
-                if coins is None:
-                    print(f"  {status}: {detail}\n")
-                else:
-                    print(f"  Bayar QRIS: {coins:,} koin | {status}\n")
-            except FloodWaitError as exc:
-                save_result(username, None, "GAGAL", f"Telegram meminta jeda {exc.seconds} detik; antrean dihentikan.")
-                print(f"  Flood wait {exc.seconds} detik. Antrean dihentikan agar tidak mengulang langkah yang belum pasti.")
+    if args.reset:
+        shopee_core.reset_credentials()
+        return
+
+    selected_mode = args.mode
+    input_file = args.file
+
+    if not selected_mode:
+        print_banner()
+        while True:
+            choice = input(f"{WHITE}Pilih menu [1/2/3/4/0]: {RESET}").strip()
+            if choice == "1":
+                selected_mode = "misi"
                 break
-            except Exception as exc:
-                save_result(username, None, "GAGAL", f"Error: {exc}")
-                print(f"  GAGAL: {exc}\n")
-            if index < len(usernames):
-                await asyncio.sleep(STEP_DELAY)
-        print("Selesai.")
+            elif choice == "2":
+                selected_mode = "food"
+                break
+            elif choice == "3":
+                selected_mode = "both"
+                break
+            elif choice == "4":
+                shopee_core.reset_credentials()
+                return
+            elif choice in ("0", "q", "exit"):
+                print("Sampai jumpa!")
+                return
+            else:
+                print("❌ Pilihan tidak valid, silakan ketik 1, 2, 3, 4, atau 0.")
+
+    # Tentukan sumber username
+    if not input_file:
+        print(f"\n{CYAN}{BOLD}--- SUMBER DAFTAR USERNAME ---{RESET}")
+        print(" [1] ✍️  Masukkan manual lewat layar ini")
+        print(" [2] 📄 Baca dari file teks (contoh: daftar_username.txt / food.txt)")
+        src = input(f"{WHITE}Pilih sumber [1/2] (Default 1): {RESET}").strip()
+        if src == "2":
+            input_file = input("Nama / path file teks: ").strip()
+
+    usernames = shopee_core.read_usernames(input_file)
+    print(f"✅ Ditemukan {len(usernames)} username unik yang akan diproses.")
+
+    # Buat client dan koneksi Telegram
+    client = shopee_core.create_client()
+    try:
+        await shopee_core.start_client(client)
+        print(f"{GREEN}✅ Terhubung ke Telegram!{RESET}")
+
+        if selected_mode == "misi":
+            await run_misi_mode(client, usernames)
+        elif selected_mode == "food":
+            await run_food_mode(client, usernames)
+        elif selected_mode == "both":
+            await run_both_mode(client, usernames)
     finally:
         await client.disconnect()
 
@@ -234,6 +249,6 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, EOFError):
-        print("\nDihentikan.")
+        print("\n\nDihentikan oleh pengguna.")
     except Exception as exc:
-        print(f"\nTidak dapat menjalankan Cek Misi: {exc}")
+        print(f"\n❌ Terjadi kesalahan: {exc}")
