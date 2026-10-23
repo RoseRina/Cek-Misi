@@ -21,8 +21,8 @@ usernames.txt
 
 # Unduhan File HTML Voucher
 downloads/
-!templates/
-!templates/*.html
+*.html
+shopee_web_package.zip
 
 # Python Cache & Virtual Environments
 __pycache__/
