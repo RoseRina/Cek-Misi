@@ -24,6 +24,7 @@ import sys
 from telethon.errors import FloodWaitError
 
 import shopee_core
+import voucher_claim
 
 # Inisialisasi pewarnaan terminal (fallback aman jika colorama/rich tidak terpasang)
 try:
@@ -59,6 +60,7 @@ def print_banner():
  {WHITE}4.{RESET} 📦 {BOLD}MODE MASSAL / BULK CEPAT{RESET} (Auto-Detect File .txt & Resume)
  {WHITE}5.{RESET} 👥 {BOLD}Kelola Multi-Worker{RESET}     (Multi-Login Akun Telegram)
  {WHITE}6.{RESET} ⚙️  {BOLD}Reset Pengaturan{RESET}        (Hapus Sesi & API Telegram)
+ {WHITE}7.{RESET} 🎟️ {BOLD}Klaim Voucher ShopeeFood{RESET} (Auto-Claim Voucher ke Bot)
  {WHITE}0.{RESET} 🚪 {BOLD}Keluar{RESET}
 {CYAN}======================================================================{RESET}
 """
@@ -496,7 +498,8 @@ def pilih_metode_auth():
 async def main():
     parser = argparse.ArgumentParser(description="Shopee Tools Bot All-in-One (Termux & PC)")
     parser.add_argument("file", nargs="?", default=None, help="File berisi daftar username atau raw cookie Shopee")
-    parser.add_argument("--mode", choices=["misi", "food", "both"], help="Pilih mode: misi | food | both")
+    parser.add_argument("--mode", choices=["misi", "food", "both", "claim"], help="Pilih mode: misi | food | both | claim")
+    parser.add_argument("--voucher-link", help="Tautan voucher untuk klaim (mode claim)")
     parser.add_argument("--method", choices=["username", "cookie", "auto"], default=None, help="Metode login bot: username | cookie | auto")
     parser.add_argument("--cookie", action="store_true", help="Gunakan mode Raw Cookie langsung")
     parser.add_argument("--single", help="Cek 1 akun secara langsung tanpa menu")
@@ -533,6 +536,13 @@ async def main():
                 await run_food_mode(client, usernames, auth_method=eff_method, step_delay=args.delay)
             elif mode == "both":
                 await run_both_mode(client, usernames, auth_method=eff_method, step_delay=args.delay)
+            elif mode == "claim":
+                await voucher_claim.run_voucher_claim_mode(
+                    client=client,
+                    accounts=usernames,
+                    voucher_link=args.voucher_link,
+                    step_delay=args.delay,
+                )
         finally:
             await client.disconnect()
         return
@@ -553,7 +563,7 @@ async def main():
     if not selected_mode:
         while True:
             print_banner()
-            choice = input(f"{WHITE}Pilih menu [1/2/3/4/5/6/0]: {RESET}").strip()
+            choice = input(f"{WHITE}Pilih menu [1/2/3/4/5/6/7/0]: {RESET}").strip()
             if choice == "1":
                 selected_mode = "misi"
                 break
@@ -571,11 +581,14 @@ async def main():
                 print("  [1] 🎯 Cek Misi Bayar QRIS")
                 print("  [2] 🍔 Cek Voucher Shopee Food")
                 print("  [3] ⚡ Cek Keduanya Sekaligus")
-                b_opt = input(f"{WHITE}Pilih fitur [1/2/3] (Default 1): {RESET}").strip()
+                print("  [4] 🎟️ Klaim Voucher ShopeeFood")
+                b_opt = input(f"{WHITE}Pilih fitur [1/2/3/4] (Default 1): {RESET}").strip()
                 if b_opt == "2":
                     selected_mode = "food"
                 elif b_opt == "3":
                     selected_mode = "both"
+                elif b_opt == "4":
+                    selected_mode = "claim"
                 else:
                     selected_mode = "misi"
                 break
@@ -585,14 +598,19 @@ async def main():
             elif choice == "6":
                 shopee_core.reset_credentials()
                 return
+            elif choice in ("7", "claim", "klaim"):
+                await voucher_claim.interactive_voucher_claim_menu()
+                return
             elif choice in ("0", "q", "exit"):
                 print("Sampai jumpa!")
                 return
             else:
-                print("❌ Pilihan tidak valid, silakan ketik angka 1 sampai 6, atau 0.")
+                print("❌ Pilihan tidak valid, silakan ketik angka 1 sampai 7, atau 0.")
 
-    # Jika metode login belum dipilih dari argumen CLI
-    if not auth_method:
+    # Jika mode claim, metode login spesifik bot check-in (cookie/username) tidak diperlukan
+    if selected_mode == "claim":
+        auth_method = auth_method or "username"
+    elif not auth_method:
         auth_method = pilih_metode_auth()
 
     # Jika usernames belum diisi dari argumen file
@@ -615,13 +633,13 @@ async def main():
         else:
             usernames = pilih_daftar_akun_bulk(auth_method=auth_method)
 
-    # Opsi Auto-Resume (Lewati akun yang sudah pernah dicek) jika dalam mode bulk
-    if is_bulk and len(usernames) > 1 and not auto_resume:
+    # Opsi Auto-Resume (Lewati akun yang sudah pernah dicek) jika dalam mode bulk dan bukan claim
+    if is_bulk and len(usernames) > 1 and not auto_resume and selected_mode != "claim":
         ask_resume = input(f"\nLewati akun yang sudah ada hasil suksesnya di CSV? (Y/n) [Default: Y]: ").strip().casefold()
         if ask_resume in ("", "y", "ya", "yes"):
             auto_resume = True
 
-    if auto_resume:
+    if auto_resume and selected_mode != "claim":
         to_process, skipped = shopee_core.filter_unprocessed_usernames(usernames, selected_mode)
         if skipped > 0:
             print(f"\n{GREEN}ℹ️ Fitur Resume Aktif: {skipped} akun sudah pernah dicek dan dilewati.{RESET}")
@@ -636,7 +654,7 @@ async def main():
     # Cek ketersediaan Multi-Worker
     sessions = shopee_core.get_available_telegram_sessions()
     use_multi = False
-    if len(sessions) > 1 and len(usernames) > 1:
+    if len(sessions) > 1 and len(usernames) > 1 and selected_mode != "claim":
         print(f"\n{CYAN}{BOLD}👥 TERDETEKSI {len(sessions)} SESI TELEGRAM WORKER:{RESET}")
         for s in sessions:
             print(f"  • {s}.session")
@@ -675,6 +693,13 @@ async def main():
                 await run_food_mode(client, usernames, auth_method=auth_method, step_delay=delay)
             elif selected_mode == "both":
                 await run_both_mode(client, usernames, auth_method=auth_method, step_delay=delay)
+            elif selected_mode == "claim":
+                await voucher_claim.run_voucher_claim_mode(
+                    client=client,
+                    accounts=usernames,
+                    voucher_link=getattr(args, "voucher_link", None),
+                    step_delay=delay,
+                )
         finally:
             await client.disconnect()
 

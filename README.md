@@ -11,6 +11,7 @@ Tools otomatisasi terpadu berbasis **Python & Telethon** untuk HP Android (Termu
 1. 🎯 **Cek Misi Bayar QRIS (Check-in Koin Shopee)**: Memeriksa progres koin bayar QRIS per akun dan mencatat hasilnya rapi ke CSV.
 2. 🍔 **Cek Voucher Shopee Food (Diskon 25RB & 12RB)**: Memeriksa ketersediaan voucher makanan (Diskon 100% s.d. 25RB & Diskon Ongkir 12RB tanpa minimum belanja), menyimpan akun yang lolos ke `valid_food.txt` dan rekap lengkap ke CSV.
 3. ⚡ **Cek Keduanya Sekaligus**: Memeriksa Misi QRIS dan Voucher Food secara otomatis bergantian untuk setiap akun.
+4. 🎟️ **Klaim Voucher ShopeeFood**: Otomatisasi proses klaim voucher ShopeeFood ke `@shp_tools_bot` secara berurutan dan mencatat respons akhir ke `bot_responses.txt`.
 
 ---
 
@@ -24,6 +25,7 @@ Tools otomatisasi terpadu berbasis **Python & Telethon** untuk HP Android (Termu
    - [Panduan Mode Massal / Bulk](#2--panduan-mode-massal--bulk-banyak-akun-sekaligus)
    - [Mode Satuan Cepat](#3--mode-satuan-cepat-cek-1-akun-langsung)
    - [Runner Khusus Voucher Food (food.py)](#4-runner-khusus-voucher-food-foodpy)
+   - [Klaim Voucher ShopeeFood (voucher_claim.py)](#5-klaim-voucher-shopeefood-voucher_claimpy)
 6. [📊 Penjelasan File Output & Hasil](#-penjelasan-file-output--hasil)
 7. [❓ Tanya Jawab & Solusi Error (Troubleshooting)](#-tanya-jawab--solusi-error-troubleshooting)
 8. [🔒 Keamanan & Privasi](#-keamanan--privasi)
@@ -51,6 +53,7 @@ Program ini mendukung pengecekan banyak akun sekaligus (hingga ratusan akun) di 
 Di dalam repositori ini sudah disediakan template file contoh:
 - [`daftar_username.example.txt`](file:///c:/Users/Ferdi/Pictures/vsphone/daftar_username.example.txt) (Template umum)
 - [`food.example.txt`](file:///c:/Users/Ferdi/Pictures/vsphone/food.example.txt) (Template khusus voucher food)
+- [`accounts.example.txt`](file:///c:/Users/Ferdi/Pictures/vsphone/accounts.example.txt) (Template klaim voucher ShopeeFood: email, username, atau ID)
 
 #### 1. Di HP Android (Termux):
 Salin template contoh menjadi file kerja Anda:
@@ -218,7 +221,9 @@ Akan tampil menu interaktif:
  2. 🍔 Cek Voucher Shopee Food  (Diskon 25RB & Ongkir 12RB)
  3. ⚡ Cek Keduanya Sekaligus   (Misi QRIS + Voucher Food)
  4. 📦 MODE MASSAL / BULK CEPAT (Auto-Detect File .txt & Resume)
- 5. ⚙️  Reset Pengaturan        (Hapus Sesi & API Telegram)
+ 5. 👥 Kelola Multi-Worker     (Multi-Login Akun Telegram)
+ 6. ⚙️  Reset Pengaturan        (Hapus Sesi & API Telegram)
+ 7. 🎟️ Klaim Voucher ShopeeFood (Auto-Claim Voucher ke Bot)
  0. 🚪 Keluar
 ======================================================================
 ```
@@ -246,6 +251,9 @@ python cek_misi_termux.py daftar_username.txt --mode misi
 # Cek Voucher Food massal dari file:
 python cek_misi_termux.py food.txt --mode food
 
+# Klaim Voucher Food massal dari file:
+python cek_misi_termux.py accounts.txt --mode claim
+
 # Cek Keduanya sekaligus dari file dengan jeda 3 detik dan lewati akun yang sudah dicek:
 python cek_misi_termux.py daftar_username.txt --mode both --resume --delay 3
 ```
@@ -253,13 +261,16 @@ python cek_misi_termux.py daftar_username.txt --mode both --resume --delay 3
 ---
 
 ### 3. ⚡ Mode Satuan Cepat (Cek 1 Akun Langsung)
-Jika Anda hanya ingin mengecek 1 akun cepat tanpa membuka menu:
+Jika Anda hanya ingin mengecek atau mengklaim 1 akun cepat tanpa membuka menu:
 ```bash
 # Cek Misi QRIS untuk 1 akun:
 python cek_misi_termux.py --single username_shopee --mode misi
 
 # Cek Voucher Food untuk 1 akun:
 python food.py --single username_shopee
+
+# Klaim Voucher ShopeeFood untuk 1 akun/email:
+python cek_misi_termux.py --single email_target@gmail.com --mode claim
 ```
 
 ---
@@ -272,13 +283,36 @@ python food.py
 python food.py food.txt
 ```
 
+---
+
+### 5. 🎟️ Klaim Voucher ShopeeFood (`voucher_claim.py`)
+Fitur otomatisasi klaim voucher ShopeeFood ke bot Telegram `@shp_tools_bot`:
+1. Mengirim perintah `/account`
+2. Menemukan & mengklik tombol **Claim Voucher**
+3. Mengirim tautan voucher yang telah dikonfigurasi
+4. Menemukan & mengklik tombol metode identifikasi (**Email / Username / ID**)
+5. Mengirim identitas akun pengguna
+6. Membaca respons akhir bot dan menyimpannya secara inkremental ke `bot_responses.txt`
+
+#### Cara Menjalankan:
+```bash
+# Cara 1: Lewat Menu Utama interaktif (Pilih opsi [7])
+python cek_misi_termux.py
+
+# Cara 2: Langsung jalankan modul klaim voucher
+python voucher_claim.py
+
+# Cara 3: Mode CLI dengan file dan tautan voucher kustom
+python cek_misi_termux.py accounts.txt --mode claim --voucher-link "https://shopee.co.id/voucher/..."
+```
+
 <details>
 <summary><b>💡 Fitur Hemat Waktu: Simpan Otomatis API ID & Hash</b></summary>
 <br>
 
 Pada saat pertama kali dijalankan, script akan menanyakan apakah Anda ingin menyimpan `API_ID` dan `API_HASH` di perangkat.  
 Ketik **Y** (Ya), maka untuk hari-hari berikutnya Anda **tidak perlu repot mengetik ulang API ID & API Hash lagi**!
-File konfigurasi disimpan lokal dan tidak akan terupload ke internet. Jika ingin mengganti akun, cukup pilih menu nomor **5 (Reset Pengaturan)**.
+File konfigurasi disimpan lokal dan tidak akan terupload ke internet. Jika ingin mengganti akun, cukup pilih menu nomor **6 (Reset Pengaturan)**.
 </details>
 
 ---
@@ -295,6 +329,7 @@ Bot ini otomatis menyimpan hasil dalam **2 format sekaligus** (CSV untuk Excel &
 | **`diskon_25rb.txt`** | TXT | Kumpulan akun yang **memiliki Diskon 25RB** (lengkap maupun parsial). |
 | **`valid_food.txt`** | TXT | Kumpulan akun yang **100% lolos syarat lengkap** (Diskon 25RB + Ongkir 12RB). |
 | **`misi_selesai.txt`** | TXT | Kumpulan akun yang misi bayar QRIS-nya sudah selesai atau berkoin. |
+| **`bot_responses.txt`** | TXT | Catatan riwayat respons bot hasil proses klaim voucher ShopeeFood. |
 
 ### Cara Membuka Langsung di Layar Termux:
 ```bash

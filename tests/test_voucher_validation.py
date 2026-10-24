@@ -97,7 +97,7 @@ class TestShopeeFoodVoucherRegression(unittest.TestCase):
         self.false(is_shopeefood_25k_voucher(html_fashion))
 
     def test_case_5_real_fixture_wo19hs5oaz(self):
-        fixture = FIXTURES_DIR / "voucher-wo19hs5oaz.html"
+        fixture = FIXTURES_DIR / "voucher-synthetic_test_user.html"
         self.true(fixture.exists())
         has_25k, has_12k = validate_voucher_html(fixture)
         self.false(has_25k)
@@ -122,12 +122,12 @@ class TestShopeeFoodVoucherRegression(unittest.TestCase):
 
     def test_case_8_proteksi_akun_tertukar(self):
         html = """
-        <!DOCTYPE html><html><head><title>Voucher wo19hs5oaz</title></head>
-        <body><div class="hd"><h1>Voucher Saya</h1><span class="u">wo19hs5oaz</span></div></body></html>
+        <!DOCTYPE html><html><head><title>Voucher synthetic_test_user</title></head>
+        <body><div class="hd"><h1>Voucher Saya</h1><span class="u">synthetic_test_user</span></div></body></html>
         """
-        self.true(verify_html_account_match(html, "wo19hs5oaz", "voucher-wo19hs5oaz.html"))
-        self.true(verify_html_account_match(html, "WO19HS5OAZ"))
-        self.false(verify_html_account_match(html, "user_beveda"))
+        self.true(verify_html_account_match(html, "synthetic_test_user", "voucher-synthetic_test_user.html"))
+        self.true(verify_html_account_match(html, "SYNTHETIC_TEST_USER"))
+        self.false(verify_html_account_match(html, "user_berbeda"))
 
     def test_status_classification(self):
         # Skenario 1: Lengkap 25k & 12k
@@ -150,7 +150,7 @@ class TestShopeeFoodVoucherRegression(unittest.TestCase):
         self.assertEqual(status, "PARSIAL")
         self.assertFalse(is_valid)
 
-        # Skenario 3: Tidak ada (kasus wo19hs5oaz)
+        # Skenario 3: Tidak ada (kasus voucher tanpa target 25k dan 12k)
         has_25k, has_12k = False, False
         if has_25k and has_12k:
             status, is_valid = "MEMENUHI SYARAT", True

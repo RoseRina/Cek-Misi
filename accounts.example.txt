@@ -1,0 +1,18 @@
+# =====================================================================
+# TEMPLATE DAFTAR AKUN UNTUK KLAIM VOUCHER SHOPEEFOOD
+# =====================================================================
+# Anda dapat memasukkan email, username, atau ID Shopee.
+# - Satu identitas akun per baris
+# - Baris yang diawali tanda pagar (#) akan diabaikan (komentar)
+# - Duplikat akun akan otomatis dibersihkan oleh sistem
+#
+# Cara menggunakan:
+# Salin file ini menjadi 'accounts.txt':
+#   cp accounts.example.txt accounts.txt
+# Lalu isi dengan email atau username target Anda.
+# =====================================================================
+
+user1@gmail.com
+user2@yahoo.com
+shopee_user_pertama
+shopee_user_kedua
