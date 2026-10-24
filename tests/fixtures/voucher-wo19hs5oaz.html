@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Voucher wo19hs5oaz</title>
+<style>
+/* layout: header + tab bar lengket di atas, daftar kartu tiket satu kolom; warna dari dunia Shopee (jingga-merah). */
+:root{--bg:#f6f2ef;--card:#fff;--fg:#211b18;--mute:#7d7069;--line:#eadfd9;--accent:#ee4d2d;--accent-soft:#fdeae4;--food:#f08a24;--pay:#d42a3c;--later:#2d6ce0;--fsv:#1f9d55;--toko:#7a4bd6;--chip:#fff4ef;--chip-fg:#c73d1f;--urgent:#d93025;--soon:#2a7a3b}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#171210;--card:#241c18;--fg:#f4ede8;--mute:#a79a91;--line:#3a2e28;--accent:#ff6a45;--accent-soft:#3b221b;--food:#ff9a3c;--pay:#ff5566;--later:#5b8cff;--fsv:#3fc47a;--toko:#a98bff;--chip:#3b221b;--chip-fg:#ffb39f;--urgent:#ff7b6e;--soon:#6fcf83;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#171210;--card:#241c18;--fg:#f4ede8;--mute:#a79a91;--line:#3a2e28;--accent:#ff6a45;--accent-soft:#3b221b;--food:#ff9a3c;--pay:#ff5566;--later:#5b8cff;--fsv:#3fc47a;--toko:#a98bff;--chip:#3b221b;--chip-fg:#ffb39f;--urgent:#ff7b6e;--soon:#6fcf83;color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+.tr{position:absolute;opacity:0;width:0;height:0;pointer-events:none}
+.top{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line)}
+.hd{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:12px 16px 6px}
+.hd h1{font-size:17px;margin:0;letter-spacing:.01em}
+.hd .u{font-size:12px;color:var(--mute);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding:4px 16px 10px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:0 0 auto;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer;font-variant-numeric:tabular-nums;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+.tab b{font-weight:600}
+.cp:focus-visible,.srch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tool{display:flex;gap:8px;padding:0 16px 10px}
+.srch{flex:1;min-width:0;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:8px;padding:8px 10px;font-size:14px}
+.list{display:flex;flex-direction:column;gap:10px;padding-block:12px;padding-inline:16px;max-width:640px;margin:0 auto}
+.vc{position:relative;display:flex;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;min-width:0}
+.stub{flex:0 0 92px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:8px 6px;color:#fff;text-align:center;background:var(--accent);border-right:2px dashed rgba(255,255,255,.55)}
+.stub.food{background:var(--food)}.stub.pay{background:var(--pay)}.stub.later{background:var(--later)}.stub.fsv{background:var(--fsv)}.stub.toko{background:var(--toko)}
+.stub i{display:block;background-position:center;background-repeat:no-repeat}
+.stub .ov{width:44px;height:44px;background-size:contain}
+.stub .tile{width:64px;height:64px;background-size:cover;border-radius:8px;background-color:#fff}
+.flag{position:absolute;top:0;left:0;background:#f5a623;color:#3a2600;font-size:9px;font-weight:700;padding:2px 6px;border-radius:10px 0 8px 0;letter-spacing:.03em}
+.stub-t{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;line-height:1.25;overflow-wrap:anywhere}
+.stub-s{font-size:9px;opacity:.9;letter-spacing:.04em;text-transform:uppercase}
+.vc::before,.vc::after{content:"";position:absolute;left:84px;width:14px;height:14px;border-radius:50%;background:var(--bg);border:1px solid var(--line)}
+.vc::before{top:-8px}.vc::after{bottom:-8px}
+.body{flex:1;min-width:0;padding:10px 12px;display:flex;flex-direction:column;gap:3px}
+.h{font-weight:700;font-size:15px;line-height:1.3;text-wrap:balance;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.q{font-size:12px;font-weight:600;color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:1px 6px;font-variant-numeric:tabular-nums}
+.q small{font-weight:500;color:var(--mute)}
+.m{font-size:13px}
+.v{font-size:12px;color:var(--mute)}
+.v.urgent{color:var(--urgent);font-weight:600}.v.soon{color:var(--soon);font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px}
+.chip{font-size:11px;color:var(--chip-fg);background:var(--chip);border:1px solid var(--accent-soft);border-radius:4px;padding:1px 6px}
+.code{display:flex;align-items:center;gap:8px;margin-top:4px;min-width:0}
+.code code{font:12px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.cp{flex:0 0 auto;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer}
+.new{position:absolute;top:0;right:0;background:var(--accent);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:0 0 0 8px;letter-spacing:.04em}
+.empty{text-align:center;color:var(--mute);padding:40px 16px;display:none}
+.ft{text-align:center;color:var(--mute);font-size:12px;padding:8px 16px 24px}
+</style>
+</head><body>
+<input type="radio" name="tab" id="t-all" class="tr" checked><input type="radio" name="tab" id="t-shopee" class="tr"><input type="radio" name="tab" id="t-vip" class="tr"><input type="radio" name="tab" id="t-toko" class="tr"><input type="radio" name="tab" id="t-pulsa" class="tr"><input type="radio" name="tab" id="t-food" class="tr"><input type="radio" name="tab" id="t-instant" class="tr"><input type="radio" name="tab" id="t-pay" class="tr"><input type="radio" name="tab" id="t-partner" class="tr"><input type="radio" name="tab" id="t-keuangan" class="tr">
+<header class="top">
+<div class="hd"><h1>Voucher Saya</h1><span class="u">wo19hs5oaz</span></div>
+<div class="tabs"><label for="t-all" class="tab">Semua <b>1219</b></label><label for="t-shopee" class="tab">Shopee <b>371</b></label><label for="t-vip" class="tab">ShopeeVIP <b>902</b></label><label for="t-toko" class="tab">Toko <b>0</b></label><label for="t-pulsa" class="tab">Pulsa & Tagihan <b>0</b></label><label for="t-food" class="tab">ShopeeFood <b>777</b></label><label for="t-instant" class="tab">Kirim Instant <b>0</b></label><label for="t-pay" class="tab">Voucher ShopeePay <b>69</b></label><label for="t-partner" class="tab">Partner <b>0</b></label><label for="t-keuangan" class="tab">Keuangan <b>2</b></label></div>
+<div class="tool" id="tool" hidden><input id="srch" class="srch" type="search" placeholder="Cari voucher, label, kode…" autocomplete="off"></div>
+</header>
+<main class="list">
+<article class="vc" data-g="all food" data-q="3">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic32"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon 15% s.d. Rp200RB<span class="q" title="kuota pemakaian">x3</span></div>
+<div class="m">Min. Blj Rp100RB</div>
+<div class="v urgent">sisa 7 jam</div>
+<div class="chips"><span class="chip">Resto Tertentu</span></div>
+<div class="code"><code>BAUHI3330175694223974520261024</code><button type="button" class="cp" data-c="BAUHI3330175694223974520261024" hidden>Salin</button></div>
+</div><span class="new">Baru</span>
+</article>
+<article class="vc" data-g="all food" data-q="3">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic32"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon 12% s.d. Rp50RB<span class="q" title="kuota pemakaian">x3</span></div>
+<div class="m">Tanpa min. belanja</div>
+<div class="v urgent">sisa 7 jam</div>
+<div class="chips"><span class="chip">Resto Tertentu</span><span class="chip">Pickup</span></div>
+<div class="code"><code>DKNPU6316698534476134420261024</code><button type="button" class="cp" data-c="DKNPU6316698534476134420261024" hidden>Salin</button></div>
+</div><span class="new">Baru</span>
+</article>
+<article class="vc" data-g="all food" data-q="3">
+<div class="stub food" style="background:#26AA99"><i class="tile ic33"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Ongkir Rp6RB<span class="q" title="kuota pemakaian">x3</span></div>
+<div class="m">Min. Blj Rp100RB</div>
+<div class="v urgent">sisa 7 jam</div>
+<div class="chips"><span class="chip">Semua Resto</span></div>
+<div class="code"><code>BAUGO15314294404698727020261024</code><button type="button" class="cp" data-c="BAUGO15314294404698727020261024" hidden>Salin</button></div>
+</div><span class="new">Baru</span>
+</article>
+<article class="vc" data-g="all food" data-q="10">
+<div class="stub food" style="background:#26AA99"><i class="tile ic34"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Ongkir Rp4RB<span class="q" title="kuota pemakaian">x10</span></div>
+<div class="m">Min. Blj Rp60RB</div>
+<div class="v urgent">sisa 7 jam</div>
+<div class="chips"><span class="chip">Semua Resto</span></div>
+<div class="code"><code>BAUGO6314294404698726820261024</code><button type="button" class="cp" data-c="BAUGO6314294404698726820261024" hidden>Salin</button></div>
+</div><span class="new">Baru</span>
+</article>
+<article class="vc" data-g="all food" data-q="3">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic35"></i><span class="stub-t">MIE GACOAN</span></div>
+<div class="body">
+<div class="h">Diskon 21% s.d. Rp70RB<span class="q" title="kuota pemakaian">x3</span></div>
+<div class="m">Min. Blj Rp100RB</div>
+<div class="v urgent">sisa 7 jam</div>
+<div class="chips"><span class="chip">Mie Gacoan</span></div>
+<div class="code"><code>GACOAN3298460677648897520261024</code><button type="button" class="cp" data-c="GACOAN3298460677648897520261024" hidden>Salin</button></div>
+</div><span class="new">Baru</span>
+</article>
+<article class="vc" data-g="all food" data-q="3">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic36"></i><span class="stub-t">MIE GACOAN</span></div>
+<div class="body">
+<div class="h">Diskon 21% s.d. Rp25RB<span class="q" title="kuota pemakaian">x3</span></div>
+<div class="m">Min. Blj Rp50RB</div>
+<div class="v urgent">sisa 7 jam</div>
+<div class="chips"><span class="chip">Mie Gacoan</span></div>
+<div class="code"><code>GACOAN2298460677648897420261024</code><button type="button" class="cp" data-c="GACOAN2298460677648897420261024" hidden>Salin</button></div>
+</div><span class="new">Baru</span>
+</article>
+<article class="vc" data-g="all food" data-q="3">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic37"></i><span class="stub-t">MIE GACOAN</span></div>
+<div class="body">
+<div class="h">Diskon 21% s.d. Rp15RB<span class="q" title="kuota pemakaian">x3</span></div>
+<div class="m">Min. Blj Rp33RB</div>
+<div class="v urgent">sisa 7 jam</div>
+<div class="chips"><span class="chip">Mie Gacoan</span></div>
+<div class="code"><code>GACOAN1298460677648897320261024</code><button type="button" class="cp" data-c="GACOAN1298460677648897320261024" hidden>Salin</button></div>
+</div><span class="new">Baru</span>
+</article>
+<article class="vc" data-g="all food" data-q="3">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic32"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon 20% s.d. Rp10RB<span class="q" title="kuota pemakaian">x3</span></div>
+<div class="m">Min. Blj Rp35RB</div>
+<div class="v urgent">sisa 7 jam</div>
+<div class="chips"><span class="chip">Semua Resto</span></div>
+<div class="code"><code>BAUNG1287551855107379220261024</code><button type="button" class="cp" data-c="BAUNG1287551855107379220261024" hidden>Salin</button></div>
+</div><span class="new">Baru</span>
+</article>
+<article class="vc" data-g="all food" data-q="10">
+<div class="stub food" style="background:#26AA99"><i class="tile ic38"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Ongkir Rp1RB<span class="q" title="kuota pemakaian">x10</span></div>
+<div class="m">Tanpa min. belanja</div>
+<div class="v urgent">sisa 7 jam</div>
+<div class="chips"><span class="chip">Semua Resto</span></div>
+<div class="code"><code>BAUGO1283868459719372820261024</code><button type="button" class="cp" data-c="BAUGO1283868459719372820261024" hidden>Salin</button></div>
+</div><span class="new">Baru</span>
+</article>
+<article class="vc" data-g="all food vip" data-q="1">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic39"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon 36% s.d. Rp60RB</div>
+<div class="m">Min. Blj Rp60RB</div>
+<div class="v ">Hingga 21.11.2026</div>
+<div class="chips"><span class="chip">Resto Tertentu</span><span class="chip">ShopeeVIP</span></div>
+<div class="code"><code>SHOPEEVIP254</code><button type="button" class="cp" data-c="SHOPEEVIP254" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food vip" data-q="80">
+<div class="stub food" style="background:#26AA99"><i class="tile ic40"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Ongkir Rp15RB<span class="q" title="kuota pemakaian">x80</span></div>
+<div class="m">Min. Blj Rp200RB</div>
+<div class="v ">Hingga 21.11.2026</div>
+<div class="chips"><span class="chip">Resto Tertentu</span><span class="chip">ShopeeVIP</span></div>
+<div class="code"><code>SHOPEEVIP252</code><button type="button" class="cp" data-c="SHOPEEVIP252" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food vip" data-q="1">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic39"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon 100% s.d. Rp10RB</div>
+<div class="m">Tanpa min. belanja</div>
+<div class="v ">Hingga 21.11.2026</div>
+<div class="chips"><span class="chip">Semua Resto</span><span class="chip">ShopeeVIP</span></div>
+<div class="code"><code>SHOPEEVIP253</code><button type="button" class="cp" data-c="SHOPEEVIP253" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food vip" data-q="1">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic39"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon 42% s.d. Rp250RB</div>
+<div class="m">Min. Blj Rp100RB</div>
+<div class="v ">Hingga 21.11.2026</div>
+<div class="chips"><span class="chip">Diskon Rame Rame</span><span class="chip">ShopeeVIP</span></div>
+<div class="code"><code>SHOPEEVIP255</code><button type="button" class="cp" data-c="SHOPEEVIP255" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food vip" data-q="80">
+<div class="stub food" style="background:#26AA99"><i class="tile ic40"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Ongkir Rp6RB<span class="q" title="kuota pemakaian">x80</span></div>
+<div class="m">Min. Blj Rp50RB</div>
+<div class="v ">Hingga 21.11.2026</div>
+<div class="chips"><span class="chip">Resto Tertentu</span><span class="chip">ShopeeVIP</span></div>
+<div class="code"><code>SHOPEEVIP250</code><button type="button" class="cp" data-c="SHOPEEVIP250" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food vip" data-q="80">
+<div class="stub food" style="background:#26AA99"><i class="tile ic40"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Ongkir Rp10RB<span class="q" title="kuota pemakaian">x80</span></div>
+<div class="m">Min. Blj Rp200RB</div>
+<div class="v ">Hingga 21.11.2026</div>
+<div class="chips"><span class="chip">Semua Resto</span><span class="chip">ShopeeVIP</span></div>
+<div class="code"><code>SHOPEEVIP247</code><button type="button" class="cp" data-c="SHOPEEVIP247" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food vip" data-q="80">
+<div class="stub food" style="background:#26AA99"><i class="tile ic40"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Ongkir Rp5RB<span class="q" title="kuota pemakaian">x80</span></div>
+<div class="m">Min. Blj Rp40RB</div>
+<div class="v ">Hingga 21.11.2026</div>
+<div class="chips"><span class="chip">Resto Tertentu</span><span class="chip">ShopeeVIP</span></div>
+<div class="code"><code>SHOPEEVIP249</code><button type="button" class="cp" data-c="SHOPEEVIP249" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food vip" data-q="80">
+<div class="stub food" style="background:#26AA99"><i class="tile ic40"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Ongkir Rp4RB<span class="q" title="kuota pemakaian">x80</span></div>
+<div class="m">Min. Blj Rp30RB</div>
+<div class="v ">Hingga 21.11.2026</div>
+<div class="chips"><span class="chip">Resto Tertentu</span><span class="chip">ShopeeVIP</span></div>
+<div class="code"><code>SHOPEEVIP248</code><button type="button" class="cp" data-c="SHOPEEVIP248" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food vip" data-q="80">
+<div class="stub food" style="background:#26AA99"><i class="tile ic40"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Ongkir Rp3RB<span class="q" title="kuota pemakaian">x80</span></div>
+<div class="m">Min. Blj Rp50RB</div>
+<div class="v ">Hingga 21.11.2026</div>
+<div class="chips"><span class="chip">Semua Resto</span><span class="chip">ShopeeVIP</span></div>
+<div class="code"><code>SHOPEEVIP245</code><button type="button" class="cp" data-c="SHOPEEVIP245" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food vip" data-q="80">
+<div class="stub food" style="background:#26AA99"><i class="tile ic40"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Ongkir Rp11RB<span class="q" title="kuota pemakaian">x80</span></div>
+<div class="m">Min. Blj Rp100RB</div>
+<div class="v ">Hingga 21.11.2026</div>
+<div class="chips"><span class="chip">Resto Tertentu</span><span class="chip">ShopeeVIP</span></div>
+<div class="code"><code>SHOPEEVIP251</code><button type="button" class="cp" data-c="SHOPEEVIP251" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food vip" data-q="80">
+<div class="stub food" style="background:#26AA99"><i class="tile ic40"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Ongkir Rp5RB<span class="q" title="kuota pemakaian">x80</span></div>
+<div class="m">Min. Blj Rp100RB</div>
+<div class="v ">Hingga 21.11.2026</div>
+<div class="chips"><span class="chip">Semua Resto</span><span class="chip">ShopeeVIP</span></div>
+<div class="code"><code>SHOPEEVIP246</code><button type="button" class="cp" data-c="SHOPEEVIP246" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food vip" data-q="80">
+<div class="stub food" style="background:#26AA99"><i class="tile ic40"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Ongkir Rp2RB<span class="q" title="kuota pemakaian">x80</span></div>
+<div class="m">Min. Blj Rp30RB</div>
+<div class="v ">Hingga 21.11.2026</div>
+<div class="chips"><span class="chip">Semua Resto</span><span class="chip">ShopeeVIP</span></div>
+<div class="code"><code>SHOPEEVIP244</code><button type="button" class="cp" data-c="SHOPEEVIP244" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food" data-q="5">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic32"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Rp10RB<span class="q" title="kuota pemakaian">x5</span></div>
+<div class="m">Min. Blj Rp50RB</div>
+<div class="v ">Hingga 31.10.2026</div>
+<div class="chips"><span class="chip">Kartu Debit</span><span class="chip">BTN Cobrand</span></div>
+<div class="code"><code>BTNFOOD10</code><button type="button" class="cp" data-c="BTNFOOD10" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food" data-q="1">
+<div class="stub food" style="background:#26AA99"><i class="tile ic41"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Ongkir Rp10RB</div>
+<div class="m">Tanpa min. belanja</div>
+<div class="v ">Hingga 25.10.2026</div>
+<div class="chips"><span class="chip">Pengguna Baru SPayLater</span></div>
+<div class="code"><code>ONGKIRLATER371</code><button type="button" class="cp" data-c="ONGKIRLATER371" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food" data-q="1">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic32"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon 15% s.d. Rp10RB</div>
+<div class="m">Min. Blj Rp65RB</div>
+<div class="v ">Hingga 31.10.2026</div>
+<div class="chips"><span class="chip">Kartu Debit</span><span class="chip">BRI</span></div>
+<div class="code"><code>BRIDBFOOD</code><button type="button" class="cp" data-c="BRIDBFOOD" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food" data-q="1">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic32"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Rp25RB</div>
+<div class="m">Min. Blj Rp125RB</div>
+<div class="v ">Hingga 31.10.2026</div>
+<div class="chips"><span class="chip">Kartu Debit</span><span class="chip">BTN VISA</span></div>
+<div class="code"><code>BTNFOOD</code><button type="button" class="cp" data-c="BTNFOOD" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food" data-q="1">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic32"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Rp20RB</div>
+<div class="m">Min. Blj Rp200RB</div>
+<div class="v ">Hingga 31.10.2026</div>
+<div class="chips"><span class="chip">Kartu Kredit</span><span class="chip">Digibank</span></div>
+<div class="code"><code>DBSFOOD2</code><button type="button" class="cp" data-c="DBSFOOD2" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food" data-q="1">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic32"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon Rp15RB</div>
+<div class="m">Min. Blj Rp150RB</div>
+<div class="v ">Hingga 31.10.2026</div>
+<div class="chips"><span class="chip">Kartu Kredit</span><span class="chip">Digibank</span></div>
+<div class="code"><code>DBSFOOD1</code><button type="button" class="cp" data-c="DBSFOOD1" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food" data-q="1">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic32"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon 100% s.d. Rp25RB</div>
+<div class="m">Min. Blj Rp25RB</div>
+<div class="v ">Hingga 25.10.2026</div>
+<div class="chips"><span class="chip">Pengguna Baru</span><span class="chip">SPayLater</span></div>
+<div class="code"><code>JAJANLATER233</code><button type="button" class="cp" data-c="JAJANLATER233" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food" data-q="1">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic32"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon 100% s.d. Rp30RB</div>
+<div class="m">Tanpa min. belanja</div>
+<div class="v ">Hingga 25.10.2026</div>
+<div class="chips"><span class="chip">Pengguna Baru</span><span class="chip">SPayLater</span></div>
+<div class="code"><code>COBALATER394</code><button type="button" class="cp" data-c="COBALATER394" hidden>Salin</button></div>
+</div>
+</article>
+<article class="vc" data-g="all food" data-q="1">
+<div class="stub food" style="background:#EE4D2D"><i class="tile ic32"></i><span class="stub-t">SHOPEEFOOD</span></div>
+<div class="body">
+<div class="h">Diskon 90% s.d. Rp50RB</div>
+<div class="m">Tanpa min. belanja</div>
+<div class="v ">Hingga 25.10.2026</div>
+<div class="chips"><span class="chip">Pengguna Baru SPayLater</span></div>
+<div class="code"><code>COBALATER393</code><button type="button" class="cp" data-c="COBALATER393" hidden>Salin</button></div>
+</div>
+</article>
+<div class="empty">Tidak ada voucher di tab ini.</div>
+</main>
+<footer class="ft">265 kartu voucher · angka tab = total kuota pemakaian · dibuat 24 Okt 2026, 16:24 WIB</footer>
+</body></html>

@@ -172,8 +172,11 @@ async def run_misi_mode(client, usernames, auth_method="username", step_delay=2.
 async def run_food_mode(client, usernames, auth_method="username", step_delay=2.5):
     total = len(usernames)
     print(f"\n{YELLOW}{BOLD}▶ Memulai Pengecekan Voucher Shopee Food ({total} akun/cookie, Metode: {auth_method.upper()})...{RESET}\n")
+    processed_count = 0
     valid_count = 0
     invalid_count = 0
+    partial_count = 0
+    error_count = 0
     valid_list = []
 
     for idx, user in enumerate(usernames, 1):
@@ -183,42 +186,47 @@ async def run_food_mode(client, usernames, auth_method="username", step_delay=2.
         try:
             is_valid, status, detail, has_25k, has_12k = await shopee_core.check_one_food(client, user, auth_method=auth_method)
             shopee_core.save_food_result(user, is_valid, status, detail, has_25k, has_12k)
+            processed_count += 1
 
-            if is_valid:
+            category = shopee_core.classify_food_status(is_valid, status)
+            if category == "VALID":
                 print(f"  └─ {GREEN}{BOLD}✅ {status} ({detail}){RESET}\n")
                 valid_count += 1
                 valid_list.append(user)
-            elif status == "PARSIAL":
+            elif category == "PARSIAL":
                 print(f"  └─ {YELLOW}⚠️ {status} ({detail}){RESET}\n")
-                invalid_count += 1
-            else:
+                partial_count += 1
+            elif category == "ERROR":
                 print(f"  └─ {RED}❌ {status} ({detail}){RESET}\n")
+                error_count += 1
+            else:  # INVALID
+                print(f"  └─ {YELLOW}⚠️ {status} ({detail}){RESET}\n")
                 invalid_count += 1
         except FloodWaitError as exc:
             msg = f"Telegram meminta jeda {exc.seconds} detik. Antrean dihentikan."
             shopee_core.save_food_result(user, False, "FLOOD_WAIT", msg, False, False)
+            processed_count += 1
+            error_count += 1
             print(f"  └─ {RED}⚠️ FloodWait {exc.seconds}s. Antrean dihentikan.{RESET}\n")
             break
         except Exception as exc:
             shopee_core.save_food_result(user, False, "ERROR", str(exc), False, False)
             print(f"  └─ {RED}Error: {exc}{RESET}\n")
-            invalid_count += 1
+            processed_count += 1
+            error_count += 1
 
         if idx < total:
             await asyncio.sleep(step_delay)
 
-    print(f"{CYAN}{BOLD}==================== LAPORAN HASIL VOUCHER FOOD ===================={RESET}")
-    print(f"🎯 Total Akun       : {total}")
-    print(f"{GREEN}✅ Memenuhi Syarat  : {valid_count}{RESET}")
-    print(f"{YELLOW}⚠️ Belum Memenuhi   : {invalid_count}{RESET}")
-    if valid_list:
-        print(f"\n{GREEN}{BOLD}★ DAFTAR AKUN MEMENUHI SYARAT (25RB + 12RB):{RESET}")
-        for u in valid_list:
-            display_u = shopee_core.format_account_display(u, auth_method)
-            print(f"  • {display_u}")
-    print(f"\n📂 Akun valid (25k + 12k) di: {shopee_core.VALID_FOOD_FILE.name}")
-    print(f"📂 Akun ada Diskon 25RB di  : {shopee_core.DISKON_25K_TXT.name}")
-    print(f"📂 Rincian lengkap di       : {shopee_core.RESULTS_FOOD_FILE.name} (CSV) & {shopee_core.RESULTS_FOOD_TXT.name} (TXT)\n")
+    shopee_core.print_food_summary_report(
+        total_processed=processed_count,
+        valid_count=valid_count,
+        invalid_count=invalid_count,
+        valid_accounts=valid_list,
+        partial_count=partial_count,
+        error_count=error_count,
+        show_csv_path=True,
+    )
 
 
 async def run_both_mode(client, usernames, auth_method="username", step_delay=2.5):
@@ -249,8 +257,13 @@ async def run_both_mode(client, usernames, auth_method="username", step_delay=2.
             print(f"  [2/2] Memeriksa Voucher Shopee Food...")
             is_valid, f_status, f_detail, has_25k, has_12k = await shopee_core.check_one_food(client, user, auth_method=auth_method)
             shopee_core.save_food_result(user, is_valid, f_status, f_detail, has_25k, has_12k)
-            if is_valid:
+            f_cat = shopee_core.classify_food_status(is_valid, f_status)
+            if f_cat == "VALID":
                 print(f"        └─ {GREEN}✅ {f_status} ({f_detail}){RESET}\n")
+            elif f_cat == "PARSIAL":
+                print(f"        └─ {YELLOW}⚠️ {f_status} ({f_detail}){RESET}\n")
+            elif f_cat == "ERROR":
+                print(f"        └─ {RED}❌ {f_status} ({f_detail}){RESET}\n")
             else:
                 print(f"        └─ {YELLOW}⚠️ {f_status} ({f_detail}){RESET}\n")
 
@@ -334,11 +347,13 @@ async def run_worker_pool_mode(clients, usernames, mode="misi", auth_method="aut
                 elif mode == "food":
                     is_valid, status, detail, has_25k, has_12k = await shopee_core.check_one_food(client, user, auth_method=auth_method)
                     shopee_core.save_food_result(user, is_valid, status, detail, has_25k, has_12k)
-                    color = GREEN if is_valid else (YELLOW if status == "PARSIAL" else RED)
-                    icon = "✅" if is_valid else ("⚠️" if status == "PARSIAL" else "❌")
+                    cat = shopee_core.classify_food_status(is_valid, status)
+                    is_cat_valid = (cat == "VALID")
+                    color = GREEN if is_cat_valid else (YELLOW if cat == "PARSIAL" else RED)
+                    icon = "✅" if is_cat_valid else ("⚠️" if cat == "PARSIAL" else "❌")
                     print(f"  └─ [{w_name}] {color}{icon} {status} ({detail}){RESET}\n")
                     async with lock:
-                        if is_valid:
+                        if is_cat_valid:
                             success_count += 1
                         else:
                             fail_count += 1
@@ -351,7 +366,9 @@ async def run_worker_pool_mode(clients, usernames, mode="misi", auth_method="aut
                     is_valid, f_status, f_detail, has_25k, has_12k = await shopee_core.check_one_food(client, user, auth_method=auth_method)
                     shopee_core.save_food_result(user, is_valid, f_status, f_detail, has_25k, has_12k)
                     shopee_core.save_combined_result(user, coins, m_status, f_status, f_detail)
-                    color = GREEN if is_valid else YELLOW
+                    cat = shopee_core.classify_food_status(is_valid, f_status)
+                    is_cat_valid = (cat == "VALID")
+                    color = GREEN if is_cat_valid else YELLOW
                     c_txt = f"{coins:,} koin" if coins is not None else "-"
                     print(f"  └─ [{w_name}] {color}Misi: {m_status} ({c_txt}) | Food: {f_status} ({f_detail}){RESET}\n")
                     async with lock:

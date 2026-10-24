@@ -139,8 +139,11 @@ async def main():
         print(f"\n{CYAN}{BOLD}=== SHOPEE FOOD VOUCHER BULK CHECKER (25K & 12K) ==={RESET}")
         print(f"Target Antrean: {total} akun\n")
 
+    processed_count = 0
     valid_count = 0
     invalid_count = 0
+    partial_count = 0
+    error_count = 0
     valid_accounts_list = []
 
     try:
@@ -160,17 +163,34 @@ async def main():
                     try:
                         is_valid, status, detail, has_25k, has_12k = await shopee_core.check_one_food(client, acc)
                         shopee_core.save_food_result(acc, is_valid, status, detail, has_25k, has_12k)
+                        processed_count += 1
 
-                        if is_valid:
+                        category = shopee_core.classify_food_status(is_valid, status)
+                        if category == "VALID":
                             console.print(f"  [cyan][{i}/{total}][/cyan] ➔ [bold white]{acc:<15}[/bold white] : [bold green]MEMENUHI SYARAT[/bold green]")
                             valid_accounts_list.append(acc)
                             valid_count += 1
-                        else:
+                        elif category == "PARSIAL":
+                            console.print(f"  [cyan][{i}/{total}][/cyan] ➔ [bold white]{acc:<15}[/bold white] : [bold yellow]{status}[/bold yellow] ({detail})")
+                            partial_count += 1
+                        elif category == "ERROR":
+                            console.print(f"  [cyan][{i}/{total}][/cyan] ➔ [bold white]{acc:<15}[/bold white] : [bold red]{status}[/bold red] ({detail})")
+                            error_count += 1
+                        else:  # INVALID
                             console.print(f"  [cyan][{i}/{total}][/cyan] ➔ [bold white]{acc:<15}[/bold white] : [bold yellow]{status}[/bold yellow] ({detail})")
                             invalid_count += 1
                     except FloodWaitError as exc:
+                        msg = f"Telegram meminta jeda {exc.seconds} detik. Antrean dihentikan."
+                        shopee_core.save_food_result(acc, False, "FLOOD_WAIT", msg, False, False)
+                        processed_count += 1
+                        error_count += 1
                         console.print(f"[bold red]⚠️ FloodWait {exc.seconds}s. Antrean dihentikan demi keamanan.[/bold red]")
                         break
+                    except Exception as exc:
+                        shopee_core.save_food_result(acc, False, "ERROR", str(exc), False, False)
+                        console.print(f"  [cyan][{i}/{total}][/cyan] ➔ [bold white]{acc:<15}[/bold white] : [bold red]ERROR[/bold red] ({exc})")
+                        processed_count += 1
+                        error_count += 1
 
                     progress.advance(task)
                     if i < total:
@@ -181,17 +201,34 @@ async def main():
                 try:
                     is_valid, status, detail, has_25k, has_12k = await shopee_core.check_one_food(client, acc)
                     shopee_core.save_food_result(acc, is_valid, status, detail, has_25k, has_12k)
+                    processed_count += 1
 
-                    if is_valid:
+                    category = shopee_core.classify_food_status(is_valid, status)
+                    if category == "VALID":
                         print(f"  {bar} {acc:<15} : {GREEN}{BOLD}MEMENUHI SYARAT{RESET}")
                         valid_accounts_list.append(acc)
                         valid_count += 1
-                    else:
+                    elif category == "PARSIAL":
+                        print(f"  {bar} {acc:<15} : {YELLOW}{status}{RESET} ({detail})")
+                        partial_count += 1
+                    elif category == "ERROR":
+                        print(f"  {bar} {acc:<15} : {RED}{status}{RESET} ({detail})")
+                        error_count += 1
+                    else:  # INVALID
                         print(f"  {bar} {acc:<15} : {YELLOW}{status}{RESET} ({detail})")
                         invalid_count += 1
                 except FloodWaitError as exc:
+                    msg = f"Telegram meminta jeda {exc.seconds} detik. Antrean dihentikan."
+                    shopee_core.save_food_result(acc, False, "FLOOD_WAIT", msg, False, False)
+                    processed_count += 1
+                    error_count += 1
                     print(f"{RED}⚠️ FloodWait {exc.seconds}s. Antrean dihentikan.{RESET}")
                     break
+                except Exception as exc:
+                    shopee_core.save_food_result(acc, False, "ERROR", str(exc), False, False)
+                    print(f"  {bar} {acc:<15} : {RED}ERROR ({exc}){RESET}")
+                    processed_count += 1
+                    error_count += 1
 
                 if i < total:
                     await asyncio.sleep(args.delay)
@@ -199,33 +236,16 @@ async def main():
     finally:
         await client.disconnect()
 
-    # Rekapitulasi Akhir
-    valid_list_str = "\n".join([f"    ┗ {acc}" for acc in valid_accounts_list]) if valid_accounts_list else "    ┗ (Tidak ada)"
-    recap_text = f"""
-[bold cyan]🎯 Total Diproses   : {total}[/bold cyan]
-[bold green]✅ Memenuhi Syarat  : {valid_count}[/bold green]
-[bold yellow]⚠️ Belum Memenuhi   : {invalid_count}[/bold yellow]
-
-[bold yellow]★ DAFTAR AKUN MEMENUHI SYARAT ★[/bold yellow]
-{valid_list_str}
-    """
-
-    if USE_RICH:
-        console.print("\n")
-        console.print(Panel(recap_text.strip(), title="[bold yellow]✨ LAPORAN HASIL CHECK VOUCHER ✨[/bold yellow]", border_style="green", expand=False))
-        console.print(f"[bold cyan]📂 Akun valid disimpan di '{shopee_core.VALID_FOOD_FILE}'[/bold cyan]")
-        console.print(f"[bold cyan]📂 Rincian CSV tersimpan di '{shopee_core.RESULTS_FOOD_FILE}'[/bold cyan]\n")
-    else:
-        print("\n" + "=" * 50)
-        print("✨ LAPORAN HASIL CHECK VOUCHER ✨")
-        print("=" * 50)
-        print(f"🎯 Total Diproses  : {total}")
-        print(f"✅ Memenuhi Syarat : {valid_count}")
-        print(f"⚠️ Belum Memenuhi  : {invalid_count}")
-        print("\n★ DAFTAR AKUN MEMENUHI SYARAT ★")
-        print(valid_list_str)
-        print(f"\n📂 Akun valid disimpan di '{shopee_core.VALID_FOOD_FILE}'")
-        print(f"📂 Rincian CSV tersimpan di '{shopee_core.RESULTS_FOOD_FILE}'\n")
+    # Rekapitulasi Akhir Berbingkai Rapi (Kompatibel Termux)
+    shopee_core.print_food_summary_report(
+        total_processed=processed_count,
+        valid_count=valid_count,
+        invalid_count=invalid_count,
+        valid_accounts=valid_accounts_list,
+        partial_count=partial_count,
+        error_count=error_count,
+        show_csv_path=False,
+    )
 
 
 if __name__ == "__main__":

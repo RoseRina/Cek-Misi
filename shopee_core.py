@@ -17,9 +17,12 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
-from typing import Optional
+from typing import Optional, List, Dict, Any, Tuple
+import unicodedata
 
+from bs4 import BeautifulSoup
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError, ApiIdInvalidError, PhoneNumberInvalidError
 
@@ -338,16 +341,32 @@ def get_checked_usernames(mode: str = "misi"):
 
     if target_csv and target_csv.is_file():
         try:
+            user_latest_status = {}
             with target_csv.open("r", encoding="utf-8-sig", errors="ignore") as f:
                 reader = csv.reader(f)
                 header = next(reader, None)
                 for row in reader:
-                    if len(row) >= 4:
+                    if len(row) >= 3:
                         user = row[1].strip()
-                        status = row[3].strip().upper() if len(row) > 3 else ""
-                        # Abaikan jika status sebelumnya adalah error koneksi atau flood wait agar bisa diulang
-                        if user and "FLOOD" not in status and "TIMEOUT" not in status and "ERROR" not in status:
-                            checked.add(user)
+                        if not user:
+                            continue
+                        if mode == "food":
+                            # Kolom CSV Food: [Tanggal & Waktu, Username, Status, Diskon 25RB, Ongkir 12RB, Keterangan]
+                            st = row[2].strip().upper() if len(row) > 2 else ""
+                        elif mode == "both":
+                            # Kolom CSV Both: [Tanggal & Waktu, Username, Koin, Status Misi, Status Food, Keterangan]
+                            st_misi = row[3].strip().upper() if len(row) > 3 else ""
+                            st_food = row[4].strip().upper() if len(row) > 4 else ""
+                            st = f"{st_misi} | {st_food}"
+                        else:  # "misi"
+                            # Kolom CSV Misi: [Tanggal & Waktu, Username, Koin, Status, Keterangan]
+                            st = row[3].strip().upper() if len(row) > 3 else ""
+                        user_latest_status[user] = st
+
+            for user, st in user_latest_status.items():
+                # Abaikan jika status terakhir adalah error koneksi, timeout, atau flood wait agar bisa diulang
+                if not any(err in st for err in ("FLOOD", "TIMEOUT", "ERROR")):
+                    checked.add(user)
         except Exception:
             pass
     return checked
@@ -657,60 +676,252 @@ def save_mission_result(username: str, coins, status: str, detail: str):
 # 2. FITUR CEK VOUCHER SHOPEE FOOD (DISKON 25RB & ONGKIR 12RB)
 # =====================================================================
 
+def parse_voucher_cards(html_content: str) -> list[dict]:
+    """Mengekstrak seluruh kartu voucher individual (<article class="vc">) dari HTML."""
+    if not html_content or not isinstance(html_content, str):
+        return []
+    try:
+        soup = BeautifulSoup(html_content, "html.parser")
+    except Exception:
+        return []
+
+    # Format bot umumnya adalah <article class="vc" ...> atau elemen dengan class 'vc'
+    cards = soup.find_all(lambda tag: tag.name in ("article", "div") and "vc" in tag.get("class", []))
+    if not cards:
+        cards = soup.find_all("article")
+
+    parsed = []
+    for card in cards:
+        groups = card.get("data-g", "").casefold().split()
+        stub_el = card.find(class_=re.compile(r"\bstub\b"))
+        stub_classes = stub_el.get("class", []) if stub_el else []
+        stub_text = stub_el.get_text(" ", strip=True) if stub_el else ""
+
+        body_el = card.find(class_="body") or card
+        title_el = body_el.find(class_="h")
+        title_text = title_el.get_text(" ", strip=True) if title_el else ""
+
+        min_el = body_el.find(class_="m")
+        min_text = min_el.get_text(" ", strip=True) if min_el else ""
+
+        val_el = body_el.find(class_=re.compile(r"\bv\b"))
+        val_classes = val_el.get("class", []) if val_el else []
+        val_text = val_el.get_text(" ", strip=True) if val_el else ""
+
+        chips = [c.get_text(" ", strip=True).casefold() for c in body_el.find_all(class_="chip")]
+        code_el = body_el.find("code")
+        code_text = code_el.get_text(strip=True) if code_el else ""
+        raw_text = card.get_text(" ", strip=True)
+
+        parsed.append({
+            "groups": groups,
+            "stub_classes": stub_classes,
+            "stub_text": stub_text,
+            "title": title_text,
+            "min_spend": min_text,
+            "validity": val_text,
+            "val_classes": val_classes,
+            "chips": chips,
+            "code": code_text,
+            "raw_text": raw_text,
+        })
+    return parsed
+
+
+def _is_food_category(card: dict) -> bool:
+    """Memeriksa apakah kartu voucher merupakan kategori ShopeeFood."""
+    if "food" in card["groups"]:
+        return True
+    if any("food" in c.lower() for c in card["stub_classes"]):
+        return True
+    st = card["stub_text"].casefold()
+    if "shopeefood" in st or "shopee food" in st:
+        return True
+    return False
+
+
+def _is_no_min_spend(min_text: str) -> bool:
+    """Memeriksa apakah syarat belanja adalah tanpa minimum belanja (Rp0)."""
+    if not min_text:
+        return False
+    if re.search(r"tanpa\s*min(?:imum)?(?:\.?\s*belanja)?", min_text, re.IGNORECASE):
+        return True
+    if re.search(r"min(?:\.?\s*blj|\.?\s*belanja)?\s*(?:rp)?0\b", min_text, re.IGNORECASE):
+        return True
+    return False
+
+
+def _is_target_25k_card(card: dict) -> bool:
+    """Validasi ketat per kartu untuk voucher ShopeeFood Diskon 100% s.d. 25RB Tanpa Min. Belanja."""
+    # 1. Kategori wajib ShopeeFood
+    if not _is_food_category(card):
+        return False
+
+    # 2. Syarat pembayaran & metode: Tolak SPayLater (seperti JAJANLATER) dan kartu bank tertentu
+    if any("spaylater" in chip for chip in card["chips"]) or "later" in card["code"].casefold():
+        return False
+    bank_keywords = ("kartu debit", "kartu kredit", "debit", "kredit", "btn", "bri", "bni", "bca", "cimb", "mandiri", "dbs", "digibank")
+    if any(any(b in chip for b in bank_keywords) for chip in card["chips"]):
+        return False
+    if any("pickup" in chip for chip in card["chips"]):
+        return False
+
+    # 3. Status dan masa berlaku: Tolak voucher yang belum mulai atau sudah kedaluwarsa/habis
+    if "soon" in card["val_classes"] or "mulai" in card["validity"].casefold():
+        return False
+    if any(exp in card["validity"].casefold() for exp in ("habis", "kadaluwarsa", "telah berakhir")):
+        return False
+
+    # 4. Minimum belanja: Wajib Tanpa Min. Belanja
+    if not _is_no_min_spend(card["min_spend"]):
+        return False
+
+    # 5. Nilai & jenis diskon: Wajib 100% s.d. 25RB atau kode resmi campaign SPPSF2533 / SPPSF2033
+    if re.search(r"^SPPSF2[05]33", card["code"], re.IGNORECASE):
+        return True
+
+    has_100 = bool(re.search(r"100\s*%", card["title"]))
+    has_25k = bool(re.search(r"(?:rp)?25(?:\s*rb|\.?000)\b", card["title"], re.IGNORECASE))
+    if has_100 and has_25k:
+        other_pct = re.findall(r"(\d+)\s*%", card["title"])
+        if other_pct and any(int(p) != 100 for p in other_pct):
+            return False
+        return True
+
+    return False
+
+
+def _is_target_12k_ongkir_card(card: dict) -> bool:
+    """Validasi ketat per kartu untuk voucher Diskon Ongkir 12RB ShopeeFood Tanpa Min. Belanja."""
+    # 1. Kategori wajib ShopeeFood (bukan gratis ongkir umum marketplace / FSV)
+    if not _is_food_category(card):
+        return False
+    if "fsv" in card["stub_classes"] and "food" not in card["groups"]:
+        return False
+
+    # 2. Syarat metode: Tolak SPayLater (ONGKIRLATER) & bank card khusus
+    if any("spaylater" in chip for chip in card["chips"]) or "later" in card["code"].casefold():
+        return False
+    bank_keywords = ("kartu debit", "kartu kredit", "debit", "kredit", "btn", "bri", "bni", "bca", "cimb", "mandiri", "dbs", "digibank")
+    if any(any(b in chip for b in bank_keywords) for chip in card["chips"]):
+        return False
+
+    # 3. Status dan masa berlaku
+    if "soon" in card["val_classes"] or "mulai" in card["validity"].casefold():
+        return False
+    if any(exp in card["validity"].casefold() for exp in ("habis", "kadaluwarsa", "telah berakhir")):
+        return False
+
+    # 4. Minimum belanja: Wajib Tanpa Min. Belanja
+    if not _is_no_min_spend(card["min_spend"]):
+        return False
+
+    # 5. Nilai diskon: Diskon Ongkir 12RB atau kode resmi campaign SPPSH2433 / SPPSH2033
+    if re.search(r"^SPPSH2[04]33", card["code"], re.IGNORECASE):
+        return True
+
+    has_ongkir = bool(re.search(r"ongkir", card["title"], re.IGNORECASE))
+    has_12k = bool(re.search(r"(?:rp)?12(?:\s*rb|\.?000)\b", card["title"], re.IGNORECASE))
+    return has_ongkir and has_12k
+
+
 def is_shopeefood_25k_voucher(html_content: str) -> bool:
     """Mendeteksi secara ketat voucher ShopeeFood Diskon 100% s.d. Rp25RB
     (Tanpa min. belanja - Pengguna Baru ShopeePay - SPPSF2533...),
-    BUKAN voucher global 25k atau voucher lain di akun.
+    memvalidasi setiap kartu voucher secara individual.
     """
-    if not html_content:
+    if not html_content or not isinstance(html_content, str) or not html_content.strip():
         return False
 
-    clean = " ".join(re.sub(r"<[^>]+>", " ", html_content).split())
+    cards = parse_voucher_cards(html_content)
+    if not cards:
+        return False
 
-    # 1. Kode voucher khusus campaign ShopeePay ShopeeFood 25k: SPPSF2533... atau SPPSF2033...
-    if re.search(r"SPPSF2[05]33", clean, re.IGNORECASE):
-        return True
-
-    # 2. Judul voucher persis: "Diskon 100% s.d. Rp25RB" / "Diskon 100% s.d. 25RB" / "Diskon 100% s.d. Rp25.000"
-    if re.search(r"Diskon\s*100%\s*s\.?d\.?\s*(?:Rp)?25(?:\s*RB|\.?000)", clean, re.IGNORECASE):
-        return True
-
-    # 3. Kombinasi ketat dalam 1 voucher: Pengguna Baru + Diskon 100% + 25RB/25.000
-    if ("pengguna baru" in clean.casefold() or "user baru" in clean.casefold()):
-        if re.search(r"100%[\s\S]{1,50}?(?:25\s*RB|25\.?000)", clean, re.IGNORECASE) or re.search(r"(?:25\s*RB|25\.?000)[\s\S]{1,50}?100%", clean, re.IGNORECASE):
-            return True
-
-    # 4. Kombinasi ketat: "Tanpa min. belanja" + 100% + 25RB ShopeeFood
-    if ("tanpa min" in clean.casefold() or "min. blj rp0" in clean.casefold()):
-        if ("shopeefood" in clean.casefold() or "shopee food" in clean.casefold() or "sppsf" in clean.casefold()):
-            if re.search(r"100%[\s\S]{1,50}?(?:25\s*RB|25\.?000)", clean, re.IGNORECASE):
-                return True
-
-    return False
+    return any(_is_target_25k_card(c) for c in cards)
 
 
 def is_shopeefood_ongkir_12k(html_content: str) -> bool:
-    """Mendeteksi secara ketat voucher Diskon Ongkir 12RB ShopeeFood."""
-    if not html_content:
+    """Mendeteksi secara ketat voucher Diskon Ongkir 12RB ShopeeFood
+    (Tanpa min. belanja - SPPSH2433...),
+    memvalidasi setiap kartu voucher secara individual.
+    """
+    if not html_content or not isinstance(html_content, str) or not html_content.strip():
         return False
 
-    clean = " ".join(re.sub(r"<[^>]+>", " ", html_content).split())
+    cards = parse_voucher_cards(html_content)
+    if not cards:
+        return False
 
-    # 1. Kode voucher resmi: SPPSH2433... / SPPSH2033...
-    if re.search(r"SPPSH2[04]33", clean, re.IGNORECASE):
+    return any(_is_target_12k_ongkir_card(c) for c in cards)
+
+
+def verify_html_account_match(html_content_or_path, username: str, fname: str = "") -> bool:
+    """Memverifikasi apakah file/konten HTML yang diterima bot benar-benar milik akun yang diminta,
+    bukan balasan lama atau akun lain yang tertukar.
+    """
+    if not username:
         return True
 
-    # 2. Judul persis: Diskon Ongkir Rp12RB / Diskon Ongkir s.d. Rp12RB
-    if re.search(r"Diskon\s*Ongkir\s*(?:s\.?d\.?\s*)?(?:Rp)?12(?:\s*RB|\.?000)", clean, re.IGNORECASE):
-        return True
+    content = ""
+    if isinstance(html_content_or_path, (str, Path)):
+        p = Path(html_content_or_path)
+        if p.is_file():
+            try:
+                content = p.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                pass
+        else:
+            content = str(html_content_or_path)
 
-    return False
+    if not content:
+        return False
+
+    user_clean = username.strip().casefold()
+    is_cookie = detect_auth_method(username) == "cookie"
+
+    if not is_cookie:
+        title_match = re.search(r"<title[^>]*>.*?Voucher\s+([a-zA-Z0-9_\-]+)", content, re.IGNORECASE)
+        user_span_match = re.search(r"<span\s+class=[\"']u[\"'][^>]*>([^<]+)</span>", content, re.IGNORECASE)
+
+        extracted_user = None
+        if user_span_match:
+            extracted_user = user_span_match.group(1).strip().casefold()
+        elif title_match:
+            extracted_user = title_match.group(1).strip().casefold()
+
+        if extracted_user:
+            if extracted_user != user_clean:
+                return False
+
+        if fname:
+            fname_clean = fname.casefold()
+            fname_user_match = re.search(r"voucher[_\-]([a-zA-Z0-9_\-]+)\.html", fname_clean)
+            if fname_user_match:
+                fname_user = fname_user_match.group(1).casefold()
+                if fname_user != user_clean:
+                    return False
+    else:
+        uid_match = re.search(r"\bSPC_U=(\d+)", username)
+        if uid_match:
+            uid = uid_match.group(1)
+            user_span_match = re.search(r"<span\s+class=[\"']u[\"'][^>]*>([^<]+)</span>", content, re.IGNORECASE)
+            if user_span_match:
+                extracted = user_span_match.group(1).strip()
+                if extracted.isdigit() and extracted != uid:
+                    return False
+
+    return True
 
 
 def validate_voucher_html(file_path: Path):
     """Memeriksa apakah file HTML voucher berisi voucher ShopeeFood Diskon 25RB & Ongkir 12RB."""
     try:
-        content = file_path.read_text(encoding="utf-8", errors="ignore")
+        path = Path(file_path)
+        if not path.is_file() or path.stat().st_size == 0:
+            return False, False
+        content = path.read_text(encoding="utf-8", errors="ignore")
+        if not content.strip():
+            return False, False
         has_diskon = is_shopeefood_25k_voucher(content)
         has_ongkir = is_shopeefood_ongkir_12k(content)
         return has_diskon, has_ongkir
@@ -778,9 +989,15 @@ async def check_one_food(client, username: str, auth_method: str = "username"):
     html_path = DOWNLOAD_DIR / f"food_{safe_name}_{account_hash}.html"
     file_received = False
 
+    # Bersihkan file lama jika ada agar tidak ada data residu pemeriksaan sebelumnya
+    if html_path.exists():
+        html_path.unlink(missing_ok=True)
+
     while asyncio.get_running_loop().time() < deadline:
-        messages = await client.get_messages(TARGET_BOT, limit=12)
-        for msg in sorted((m for m in messages if (m.id > sent_msg.id or m.id >= start_id) and not m.out), key=lambda m: m.id):
+        messages = await client.get_messages(TARGET_BOT, limit=15)
+        # HANYA tangani pesan yang masuk setelah data akun dikirim (m.id > sent_msg.id)
+        candidates = sorted((m for m in messages if m.id > sent_msg.id and not m.out), key=lambda m: m.id)
+        for msg in candidates:
             # Cek pesan teks penolakan bot
             text = (msg.text or "").strip()
             err = detect_bot_error(text)
@@ -793,8 +1010,13 @@ async def check_one_food(client, username: str, auth_method: str = "username"):
                     fname = getattr(attr, "file_name", "") or ""
                     if fname.casefold().endswith(".html"):
                         await msg.download_media(str(html_path))
-                        file_received = True
-                        break
+                        if html_path.exists() and html_path.stat().st_size > 0:
+                            # Verifikasi kecocokan akun agar balasan tertukar tidak dipakai
+                            if verify_html_account_match(html_path, username, fname):
+                                file_received = True
+                                break
+                            else:
+                                html_path.unlink(missing_ok=True)
             if file_received:
                 break
         if file_received:
@@ -827,6 +1049,90 @@ async def check_one_food(client, username: str, auth_method: str = "username"):
     return is_valid, status, detail, has_25k, has_12k
 
 
+def classify_food_status(is_valid: Any, status: Any) -> str:
+    """Mengklasifikasikan status pengecekan ke dalam salah satu dari 4 kategori mutlak:
+    1. 'VALID'   : Memenuhi Syarat (is_valid=True DAN status='MEMENUHI SYARAT')
+    2. 'PARSIAL' : Parsial (is_valid=False DAN status='PARSIAL')
+    3. 'INVALID' : Belum Memenuhi (is_valid=False DAN status in ('TIDAK MEMENUHI', 'TIDAK ADA VOUCHER'))
+    4. 'ERROR'   : Gagal / Error / Konflik (Timeout, FloodWait, Bot Error, status kosong, atau konflik boolean vs status)
+    """
+    # 1. Validasi nilai boolean ketat (hanya True atau False asli)
+    if is_valid is not True and is_valid is not False:
+        return "ERROR"
+
+    st = (status or "").strip().upper() if isinstance(status, str) else ""
+    if not st:
+        return "ERROR"
+
+    # 2. Kasus is_valid True: wajib berpasangan dengan status MEMENUHI SYARAT
+    if is_valid is True:
+        if st == "MEMENUHI SYARAT":
+            return "VALID"
+        # Konflik boolean True dengan status non-valid (misal True tapi status TIMEOUT/TIDAK MEMENUHI)
+        return "ERROR"
+
+    # 3. Kasus is_valid False: jika status MEMENUHI SYARAT, ini konflik kritis
+    # Jangan otomatis menganggap valid; tandai sebagai ERROR agar dapat ditelusuri
+    if st == "MEMENUHI SYARAT":
+        return "ERROR"
+
+    # 4. Status Parsial yang sah
+    if st == "PARSIAL":
+        return "PARSIAL"
+
+    # 5. Status Belum Memenuhi yang sah
+    if st in ("TIDAK MEMENUHI", "TIDAK ADA VOUCHER"):
+        return "INVALID"
+
+    # 6. Status error, timeout, bot failure, status tak dikenal
+    return "ERROR"
+
+
+def _sync_account_in_file(file_path: Path, username: str, should_contain: bool):
+    """Menyelaraskan keberadaan username di file daftar akun txt:
+    - Jika should_contain=True: menambahkan username jika belum ada (deduplikasi aman).
+    - Jika should_contain=False: menghapus username jika sebelumnya pernah tercatat
+      (misal karena status berubah menjadi error/tidak memenuhi pada sesi baru),
+      tanpa menghapus akun valid lain yang tidak terkait.
+    """
+    clean_user = (username or "").strip()
+    if not clean_user:
+        return
+
+    user_key = clean_user.casefold()
+
+    if not file_path.exists():
+        if should_contain:
+            try:
+                file_path.write_text(f"{clean_user}\n", encoding="utf-8")
+            except Exception:
+                pass
+        return
+
+    try:
+        content = file_path.read_text(encoding="utf-8")
+        lines = [line.strip() for line in content.splitlines() if line.strip()]
+    except Exception:
+        lines = []
+
+    existing_keys = {line.casefold() for line in lines}
+
+    if should_contain:
+        if user_key not in existing_keys:
+            lines.append(clean_user)
+            try:
+                file_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            except Exception:
+                pass
+    else:
+        if user_key in existing_keys:
+            new_lines = [line for line in lines if line.casefold() != user_key]
+            try:
+                file_path.write_text(("\n".join(new_lines) + "\n") if new_lines else "", encoding="utf-8")
+            except Exception:
+                pass
+
+
 def save_food_result(username: str, is_valid: bool, status: str, detail: str, has_25k: bool, has_12k: bool):
     """Menyimpan hasil pengecekan voucher Food ke CSV, TXT, dan daftar akun lolos."""
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -845,23 +1151,206 @@ def save_food_result(username: str, is_valid: bool, status: str, detail: str, ha
         ])
 
     try:
-        # Simpan juga ke file TXT rapi
+        # Simpan juga ke file TXT rapi (riwayat append-only dengan timestamp)
         with RESULTS_FOOD_TXT.open("a", encoding="utf-8") as f_txt:
             d25 = "ADA" if has_25k else "TIDAK"
             o12 = "ADA" if has_12k else "TIDAK"
             f_txt.write(f"[{now_str}] {username} | Status: {status} | Diskon 25RB: {d25} | Ongkir 12RB: {o12} | {detail or '-'}\n")
 
-        # Akun dengan Diskon 25RB (baik lengkap maupun parsial)
-        if has_25k:
-            with DISKON_25K_TXT.open("a", encoding="utf-8") as f_25:
-                f_25.write(f"{username}\n")
+        # Klasifikasi akhir secara ketat
+        final_category = classify_food_status(is_valid, status)
 
-        # Akun lengkap memenuhi syarat (Diskon 25RB + Ongkir 12RB)
-        if is_valid:
-            with VALID_FOOD_FILE.open("a", encoding="utf-8") as f_val:
-                f_val.write(f"{username}\n")
+        # 1. KASUS VALID: Berhasil diverifikasi lengkap (Diskon 25RB + Ongkir 12RB)
+        if final_category == "VALID":
+            _sync_account_in_file(VALID_FOOD_FILE, username, should_contain=True)
+            _sync_account_in_file(DISKON_25K_TXT, username, should_contain=True)
+
+        # 2. KASUS INVALID: Hasil negatif berhasil diverifikasi (Akun terbukti tidak punya voucher)
+        elif final_category == "INVALID":
+            # Hapus akun dari daftar valid_food.txt dan diskon_25rb.txt setelah hasil negatif terkonfirmasi
+            _sync_account_in_file(VALID_FOOD_FILE, username, should_contain=False)
+            _sync_account_in_file(DISKON_25K_TXT, username, should_contain=False)
+
+        # 3. KASUS PARSIAL: Hasil parsial berhasil diverifikasi
+        elif final_category == "PARSIAL":
+            # Terbukti bukan valid lengkap, hapus dari valid_food.txt
+            _sync_account_in_file(VALID_FOOD_FILE, username, should_contain=False)
+            # Untuk diskon_25rb.txt: hanya disimpan/dipertahankan jika voucher 25RB terbukti ADA
+            if has_25k:
+                _sync_account_in_file(DISKON_25K_TXT, username, should_contain=True)
+            else:
+                _sync_account_in_file(DISKON_25K_TXT, username, should_contain=False)
+
+        # 4. KASUS ERROR / TIMEOUT / FLOOD_WAIT / KONFLIK:
+        # Pemeriksaan gagal/tidak dapat dipastikan. Jangan langsung menganggap voucher sudah hilang.
+        # Pertahankan informasi valid terakhir yang diketahui di disk (jangan dihapus dan jangan ditambah).
+        # Laporan sesi saat ini tetap mencatat akun ini sebagai ERROR, bukan VALID.
+        else:
+            pass
     except Exception:
         pass
+
+
+# =====================================================================
+# FORMATTER LAPORAN AKHIR VOUCHER FOOD (TERMUX / TERMINAL)
+# =====================================================================
+
+ANSI_REGEX = re.compile(r'\x1b\[[0-9;?]*[ -/]*[@-~]')
+
+
+def get_visible_width(text: str) -> int:
+    """Menghitung lebar visual string di terminal (kolom tampilan monospaced),
+    mengabaikan escape sequence ANSI dan memperhitungkan karakter double-width (emoji).
+    """
+    clean = ANSI_REGEX.sub('', text)
+    width = 0
+    for ch in clean:
+        code = ord(ch)
+        if ch in ('\ufe0f', '\u200d'):
+            continue
+        if code < 32 or (127 <= code < 160):
+            continue
+        eaw = unicodedata.east_asian_width(ch)
+        if eaw in ('W', 'F'):
+            width += 2
+        elif 0x1F300 <= code <= 0x1FAFF or 0x2700 <= code <= 0x27BF or 0x2600 <= code <= 0x26FF:
+            if ch in ('★', '─', '│', '╭', '╮', '╰', '╯', '└'):
+                width += 1
+            else:
+                width += 2
+        else:
+            width += 1
+    return width
+
+
+def render_food_summary_box(
+    total_processed: Optional[int] = None,
+    valid_count: int = 0,
+    invalid_count: int = 0,
+    valid_accounts: Optional[List[str]] = None,
+    partial_count: int = 0,
+    error_count: int = 0,
+    box_width: Optional[int] = None,
+    show_csv_path: bool = False,
+) -> str:
+    """Menghasilkan teks ringkasan akhir berbingkai rapi untuk terminal Termux/konsol.
+
+    Menegakkan konsistensi statistik mutlak:
+    Total Diproses = Memenuhi Syarat + Belum Memenuhi + Parsial + Gagal/Error
+    """
+    if valid_accounts is None:
+        valid_accounts = []
+
+    # Pastikan Total Diproses konsisten dengan penjumlahan seluruh kategori
+    calculated_total = valid_count + invalid_count + partial_count + error_count
+    if total_processed is None or total_processed < calculated_total:
+        total_processed = calculated_total
+
+    # Auto-detect lebar terminal agar pas di Termux Android
+    if box_width is None:
+        try:
+            term_cols = shutil.get_terminal_size((48, 20)).columns
+            if term_cols < 48:
+                box_width = max(40, term_cols)
+            elif term_cols <= 64:
+                box_width = min(term_cols - 2, 48)
+            else:
+                box_width = 48
+        except Exception:
+            box_width = 48
+
+    inner_width = max(36, box_width - 2)
+
+    # Kode warna ANSI
+    clr_border = '\033[92m'      # Hijau untuk garis bingkai
+    clr_title = '\033[1;93m'     # Kuning tebal untuk judul
+    clr_cyan = '\033[96m'        # Biru muda / cyan
+    clr_green = '\033[92m'       # Hijau untuk status memenuhi syarat
+    clr_yellow = '\033[93m'      # Kuning untuk peringatan
+    clr_red = '\033[91m'         # Merah untuk gagal/error
+    clr_num = '\033[1;96m'       # Angka biru muda tebal
+    clr_subtitle = '\033[1;93m'  # Kuning tebal untuk subjudul daftar akun
+    clr_reset = '\033[0m'        # Reset warna
+
+    def _make_line(content: str) -> str:
+        vis = get_visible_width(content)
+        pad = max(0, inner_width - vis)
+        return f"{clr_border}│{clr_reset}{content}{' ' * pad}{clr_border}│{clr_reset}"
+
+    top = f"{clr_border}╭{'─' * inner_width}╮{clr_reset}"
+    bot = f"{clr_border}╰{'─' * inner_width}╯{clr_reset}"
+    empty_line = f"{clr_border}│{clr_reset}{' ' * inner_width}{clr_border}│{clr_reset}"
+
+    title = f"{clr_title}✨ LAPORAN HASIL CHECK VOUCHER ✨{clr_reset}"
+    t_vis = get_visible_width(title)
+    l_pad = max(0, (inner_width - t_vis) // 2)
+    r_pad = max(0, inner_width - t_vis - l_pad)
+    title_line = f"{clr_border}│{clr_reset}{' ' * l_pad}{title}{' ' * r_pad}{clr_border}│{clr_reset}"
+
+    lines = [top, title_line, empty_line]
+
+    # Baris statistik utama
+    lines.append(_make_line(f" 🎯 {clr_cyan}Total Diproses{clr_reset}     : {clr_num}{total_processed}{clr_reset}"))
+    lines.append(_make_line(f" ✅ {clr_green}Memenuhi Syarat{clr_reset}    : {clr_num}{valid_count}{clr_reset}"))
+    lines.append(_make_line(f" ⚠️ {clr_yellow}Belum Memenuhi{clr_reset}     : {clr_num}{invalid_count}{clr_reset}"))
+
+    # Status parsial jika ada akun parsial
+    if partial_count > 0:
+        lines.append(_make_line(f" ⏳ {clr_yellow}Status Parsial{clr_reset}     : {clr_num}{partial_count}{clr_reset}"))
+
+    # Status error jika ada akun yang gagal / timeout
+    if error_count > 0:
+        lines.append(_make_line(f" ❌ {clr_red}Gagal / Error{clr_reset}      : {clr_num}{error_count}{clr_reset}"))
+
+    lines.append(empty_line)
+    lines.append(_make_line(f" {clr_subtitle}★ DAFTAR AKUN MEMENUHI SYARAT ★{clr_reset}"))
+
+    # Daftar username akun lolos (tanpa duplikat, aman dari text-wrapping)
+    unique_valid = list(dict.fromkeys(valid_accounts))
+    if unique_valid:
+        for acc in unique_valid:
+            prefix = "       └ "
+            prefix_vis = get_visible_width(prefix)
+            max_vis = inner_width - prefix_vis
+            display_acc = acc
+            while get_visible_width(display_acc) > max_vis and len(display_acc) > 0:
+                display_acc = display_acc[:-1]
+            if len(display_acc) < len(acc):
+                display_acc = display_acc[:-3] + "..." if len(display_acc) >= 3 else "..."
+            lines.append(_make_line(f"{prefix}{display_acc}"))
+    else:
+        lines.append(_make_line("       └ (Tidak ada)"))
+
+    lines.append(bot)
+    lines.append("")
+    lines.append(f"📂 {clr_cyan}Akun valid disimpan di '{VALID_FOOD_FILE.name}'{clr_reset}")
+    if show_csv_path:
+        lines.append(f"📂 {clr_cyan}Rincian CSV tersimpan di '{RESULTS_FOOD_FILE.name}'{clr_reset}")
+
+    return "\n".join(lines)
+
+
+def print_food_summary_report(
+    total_processed: int,
+    valid_count: int,
+    invalid_count: int,
+    valid_accounts: Optional[List[str]] = None,
+    partial_count: int = 0,
+    error_count: int = 0,
+    box_width: Optional[int] = None,
+    show_csv_path: bool = False,
+):
+    """Menampilkan ringkasan akhir pengecekan voucher Food langsung ke stdout."""
+    print("\n" + render_food_summary_box(
+        total_processed=total_processed,
+        valid_count=valid_count,
+        invalid_count=invalid_count,
+        valid_accounts=valid_accounts,
+        partial_count=partial_count,
+        error_count=error_count,
+        box_width=box_width,
+        show_csv_path=show_csv_path,
+    ) + "\n")
 
 
 # =====================================================================

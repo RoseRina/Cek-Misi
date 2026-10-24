@@ -7,10 +7,11 @@ telegram_config.json
 .env
 
 # Hasil Output Pengecekan (Data Pribadi)
-hasil_cek_misi.csv
-hasil_voucher_food.csv
-hasil_gabungan.csv
+hasil_*.csv
+hasil_*.txt
 valid_food.txt
+diskon_25rb.txt
+misi_selesai.txt
 
 # File Daftar Akun / Username Lokal
 daftar_username.txt
@@ -19,12 +20,14 @@ usernames.txt
 *.secret
 *.txt.bak
 
-# Unduhan File HTML Voucher
+# Unduhan File HTML Voucher & Paket
 downloads/
 *.html
-shopee_web_package.zip
+!tests/fixtures/*.html
+*.zip
 web_dashboard/
 web_temp/
+walkthrough.md
 
 # Python Cache & Virtual Environments
 __pycache__/
