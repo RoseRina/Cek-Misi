@@ -33,8 +33,8 @@ DOWNLOAD_DIR = Path("downloads")
 
 STEP_DELAY = 2.5
 POLL_INTERVAL = 0.5
-BUTTON_TIMEOUT = 15
-RESULT_TIMEOUT = 30
+BUTTON_TIMEOUT = 20
+RESULT_TIMEOUT = 55
 
 
 # =====================================================================
@@ -436,22 +436,44 @@ def detect_bot_error(text: str):
 
 def parse_qris_result(text: str):
     """Mengekstrak informasi koin QRIS dan status dari teks bot."""
-    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
-    qris_lines = [line for line in lines if "bayar qris" in line.casefold()]
-    if not qris_lines:
+    if not text:
         return None
-    line = qris_lines[0]
-    matches = re.findall(r"(?<!\d)([\d.,\s]+)\s*koin\b", line, re.IGNORECASE)
+    lower_text = text.casefold()
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    has_misi_header = any(h in lower_text for h in ("misi checkin", "misi check-in", "misi check in", "claim misi"))
+    qris_lines = [line for line in lines if "bayar qris" in line.casefold() or "qris" in line.casefold()]
+
+    if not has_misi_header and not qris_lines:
+        return None
+
+    line = qris_lines[0] if qris_lines else lines[0]
+
+    # Ekstrak jumlah koin jika ada
     amount = None
+    matches = re.findall(r"(?<!\d)([\d.,\s]+)\s*koin\b", line, re.IGNORECASE)
+    if not matches and qris_lines:
+        matches = re.findall(r"(?<!\d)([\d.,\s]+)\s*koin\b", text, re.IGNORECASE)
     for raw_amount in matches:
         digits = re.sub(r"\D", "", raw_amount)
         if digits:
             amount = int(digits)
             break
-    if amount is None:
-        return None
-    status = "BELUM SELESAI" if "belum" in line.casefold() else "SELESAI"
-    return amount, status, line
+
+    lower_line = line.casefold()
+    if "belum" in lower_line:
+        status = "BELUM SELESAI"
+    elif any(k in lower_line for k in ("selesai", "berhasil", "sukses")):
+        status = "SELESAI"
+    elif "sudah diclaim" in lower_line or "sudah diklaim" in lower_line:
+        status = "SUDAH DICLAIM"
+    elif any(k in lower_line for k in ("gagal", "error", "dibatasi")):
+        status = "GAGAL"
+    else:
+        status = "SELESAI" if (amount and amount > 0) else "BELUM SELESAI"
+
+    detail = line.replace("➖", "").replace("✅", "").replace("❌", "").strip()
+    return amount, status, detail
 
 
 async def check_one_mission(client, username: str, auth_method: str = "username"):
@@ -508,7 +530,7 @@ async def check_one_mission(client, username: str, auth_method: str = "username"
     deadline = asyncio.get_running_loop().time() + RESULT_TIMEOUT
     while asyncio.get_running_loop().time() < deadline:
         messages = await client.get_messages(TARGET_BOT, limit=15)
-        for msg in sorted((m for m in messages if m.id > sent_msg.id), key=lambda m: m.id):
+        for msg in sorted((m for m in messages if (m.id > sent_msg.id or m.id >= start_id) and not m.out), key=lambda m: m.id):
             text = (msg.text or "").strip()
             if not text or last_seen.get(msg.id) == text:
                 continue
@@ -626,8 +648,8 @@ async def check_one_food(client, username: str, auth_method: str = "username"):
     file_received = False
 
     while asyncio.get_running_loop().time() < deadline:
-        messages = await client.get_messages(TARGET_BOT, limit=8)
-        for msg in sorted((m for m in messages if m.id > sent_msg.id), key=lambda m: m.id):
+        messages = await client.get_messages(TARGET_BOT, limit=12)
+        for msg in sorted((m for m in messages if (m.id > sent_msg.id or m.id >= start_id) and not m.out), key=lambda m: m.id):
             # Cek pesan teks penolakan bot
             text = (msg.text or "").strip()
             err = detect_bot_error(text)
