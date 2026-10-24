@@ -456,15 +456,36 @@ def parse_qris_result(text: str):
     if not text:
         return None
     lower_text = text.casefold()
+
+    # 1. Abaikan pesan proses / loading sementara dari bot agar loop menunggu balasan hasil akhir
+    loading_keywords = (
+        "memproses",
+        "sedang memproses",
+        "mohon tunggu",
+        "tunggu sebentar",
+        "loading",
+        "diproses",
+        "proses checkin",
+    )
+    if any(k in lower_text for k in loading_keywords):
+        return None
+
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
-    has_misi_header = any(h in lower_text for h in ("misi checkin", "misi check-in", "misi check in", "claim misi"))
+    has_misi_header = any(h in lower_text for h in ("misi checkin", "misi check-in", "misi check in", "claim misi", "misi shopeepay"))
     qris_lines = [line for line in lines if "bayar qris" in line.casefold() or "qris" in line.casefold()]
 
     if not has_misi_header and not qris_lines:
         return None
 
-    line = qris_lines[0] if qris_lines else lines[0]
+    # Jika bot sudah mengirim daftar misi tapi misi QRIS memang tidak ada di akun ini
+    if not qris_lines:
+        has_other_missions = any(m in lower_text for m in ("install shopeepay", "isi saldo", "shopeepay", "transfer", "spin"))
+        if not (has_misi_header and has_other_missions):
+            return None
+        return None, "TIDAK ADA MISI QRIS", "Misi Bayar QRIS tidak ditemukan di akun ini"
+
+    line = qris_lines[0]
 
     # Ekstrak jumlah koin jika ada
     amount = None
@@ -489,7 +510,7 @@ def parse_qris_result(text: str):
     else:
         status = "SELESAI" if (amount and amount > 0) else "BELUM SELESAI"
 
-    detail = line.replace("➖", "").replace("✅", "").replace("❌", "").strip()
+    detail = line.replace("➖", "").replace("✅", "").replace("❌", "").replace("⏳", "").strip()
     return amount, status, detail
 
 
@@ -586,7 +607,7 @@ def save_mission_result(username: str, coins, status: str, detail: str):
         with RESULTS_MISI_TXT.open("a", encoding="utf-8") as f_txt:
             c_str = f"{coins:,} koin" if coins is not None else "-"
             f_txt.write(f"[{now_str}] {username} | Bayar QRIS: {c_str} | Status: {status} | {detail or '-'}\n")
-        if status == "SELESAI" or (coins is not None and coins > 0):
+        if status == "SELESAI":
             with MISI_SELESAI_TXT.open("a", encoding="utf-8") as f_selesai:
                 f_selesai.write(f"{username}\n")
     except Exception:

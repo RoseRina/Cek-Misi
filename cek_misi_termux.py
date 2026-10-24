@@ -138,12 +138,16 @@ async def run_misi_mode(client, usernames, auth_method="username", step_delay=2.
             coins, status, detail = await shopee_core.check_one_mission(client, user, auth_method=auth_method)
             shopee_core.save_mission_result(user, coins, status, detail)
 
-            if coins is not None:
+            if status in ("SELESAI", "SUDAH DICLAIM", "BELUM SELESAI"):
                 color = GREEN if status == "SELESAI" else YELLOW
-                print(f"  └─ {color}{BOLD}Bayar QRIS: {coins:,} koin | {status}{RESET}\n")
+                c_str = f"{coins:,} koin" if coins is not None else "-"
+                print(f"  └─ {color}{BOLD}Bayar QRIS: {c_str} | {status}{RESET}\n")
                 success_count += 1
+            elif status == "TIDAK ADA MISI QRIS":
+                print(f"  └─ {YELLOW}⚠️ {status}: {detail}{RESET}\n")
+                fail_count += 1
             else:
-                print(f"  └─ {RED}{status}: {detail}{RESET}\n")
+                print(f"  └─ {RED}❌ {status}: {detail}{RESET}\n")
                 fail_count += 1
         except FloodWaitError as exc:
             msg = f"Telegram meminta jeda {exc.seconds} detik. Antrean dihentikan."
@@ -230,11 +234,14 @@ async def run_both_mode(client, usernames, auth_method="username", step_delay=2.
             print(f"  [1/2] Memeriksa Misi QRIS...")
             coins, m_status, m_detail = await shopee_core.check_one_mission(client, user, auth_method=auth_method)
             shopee_core.save_mission_result(user, coins, m_status, m_detail)
-            if coins is not None:
+            if m_status in ("SELESAI", "SUDAH DICLAIM", "BELUM SELESAI"):
                 color = GREEN if m_status == "SELESAI" else YELLOW
-                print(f"        └─ {color}Bayar QRIS: {coins:,} koin | {m_status}{RESET}")
+                c_str = f"{coins:,} koin" if coins is not None else "-"
+                print(f"        └─ {color}Bayar QRIS: {c_str} | {m_status}{RESET}")
+            elif m_status == "TIDAK ADA MISI QRIS":
+                print(f"        └─ {YELLOW}⚠️ {m_status}: {m_detail}{RESET}")
             else:
-                print(f"        └─ {RED}{m_status}: {m_detail}{RESET}")
+                print(f"        └─ {RED}❌ {m_status}: {m_detail}{RESET}")
 
             await asyncio.sleep(step_delay)
 
@@ -306,15 +313,23 @@ async def run_worker_pool_mode(clients, usernames, mode="misi", auth_method="aut
                 if mode == "misi":
                     coins, status, detail = await shopee_core.check_one_mission(client, user, auth_method=auth_method)
                     shopee_core.save_mission_result(user, coins, status, detail)
-                    color = GREEN if status == "SELESAI" else YELLOW
-                    c_txt = f"{coins:,} koin" if coins is not None else "-"
-                    print(f"  └─ [{w_name}] {color}Bayar QRIS: {c_txt} | Status: {status}{RESET}\n")
-                    async with lock:
-                        if coins is not None:
+                    if status in ("SELESAI", "SUDAH DICLAIM", "BELUM SELESAI"):
+                        color = GREEN if status == "SELESAI" else YELLOW
+                        c_txt = f"{coins:,} koin" if coins is not None else "-"
+                        print(f"  └─ [{w_name}] {color}Bayar QRIS: {c_txt} | Status: {status}{RESET}\n")
+                        async with lock:
                             success_count += 1
-                        else:
+                            processed_count += 1
+                    elif status == "TIDAK ADA MISI QRIS":
+                        print(f"  └─ [{w_name}] {YELLOW}⚠️ {status}: {detail}{RESET}\n")
+                        async with lock:
                             fail_count += 1
-                        processed_count += 1
+                            processed_count += 1
+                    else:
+                        print(f"  └─ [{w_name}] {RED}❌ {status}: {detail}{RESET}\n")
+                        async with lock:
+                            fail_count += 1
+                            processed_count += 1
 
                 elif mode == "food":
                     is_valid, status, detail, has_25k, has_12k = await shopee_core.check_one_food(client, user, auth_method=auth_method)
@@ -337,7 +352,8 @@ async def run_worker_pool_mode(clients, usernames, mode="misi", auth_method="aut
                     shopee_core.save_food_result(user, is_valid, f_status, f_detail, has_25k, has_12k)
                     shopee_core.save_combined_result(user, coins, m_status, f_status, f_detail)
                     color = GREEN if is_valid else YELLOW
-                    print(f"  └─ [{w_name}] {color}Misi: {m_status} | Food: {f_status} ({f_detail}){RESET}\n")
+                    c_txt = f"{coins:,} koin" if coins is not None else "-"
+                    print(f"  └─ [{w_name}] {color}Misi: {m_status} ({c_txt}) | Food: {f_status} ({f_detail}){RESET}\n")
                     async with lock:
                         processed_count += 1
                         success_count += 1
