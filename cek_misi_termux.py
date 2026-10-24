@@ -162,7 +162,7 @@ async def run_misi_mode(client, usernames, auth_method="username", step_delay=2.
     print(f"🎯 Total Akun       : {total}")
     print(f"{GREEN}✅ Berhasil Dicek   : {success_count}{RESET}")
     print(f"{RED}❌ Gagal / Tidak Ada: {fail_count}{RESET}")
-    print(f"📂 Rincian CSV tersimpan di: {shopee_core.RESULTS_MISI_FILE.resolve()}\n")
+    print(f"📂 Rincian tersimpan di: {shopee_core.RESULTS_MISI_FILE.name} (CSV) & {shopee_core.RESULTS_MISI_TXT.name} (TXT)\n")
 
 
 async def run_food_mode(client, usernames, auth_method="username", step_delay=2.5):
@@ -212,8 +212,9 @@ async def run_food_mode(client, usernames, auth_method="username", step_delay=2.
         for u in valid_list:
             display_u = shopee_core.format_account_display(u, auth_method)
             print(f"  • {display_u}")
-    print(f"\n📂 Akun valid disimpan di : {shopee_core.VALID_FOOD_FILE.resolve()}")
-    print(f"📂 Rincian CSV tersimpan di: {shopee_core.RESULTS_FOOD_FILE.resolve()}\n")
+    print(f"\n📂 Akun valid (25k + 12k) di: {shopee_core.VALID_FOOD_FILE.name}")
+    print(f"📂 Akun ada Diskon 25RB di  : {shopee_core.DISKON_25K_TXT.name}")
+    print(f"📂 Rincian lengkap di       : {shopee_core.RESULTS_FOOD_FILE.name} (CSV) & {shopee_core.RESULTS_FOOD_TXT.name} (TXT)\n")
 
 
 async def run_both_mode(client, usernames, auth_method="username", step_delay=2.5):
@@ -259,7 +260,7 @@ async def run_both_mode(client, usernames, auth_method="username", step_delay=2.
             await asyncio.sleep(step_delay)
 
     print(f"{CYAN}{BOLD}==================== PENGECEKAN GABUNGAN SELESAI ===================={RESET}")
-    print(f"📂 Hasil lengkap gabungan tersimpan di: {shopee_core.RESULTS_ALL_FILE.resolve()}\n")
+    print(f"📂 Hasil lengkap tersimpan di: {shopee_core.RESULTS_ALL_FILE.name} (CSV) & {shopee_core.RESULTS_ALL_TXT.name} (TXT)\n")
 
 
 async def run_worker_pool_mode(clients, usernames, mode="misi", auth_method="auto", step_delay=2.5):
@@ -368,11 +369,12 @@ async def run_worker_pool_mode(clients, usernames, mode="misi", auth_method="aut
     print(f"{GREEN}✅ Berhasil Dicek   : {success_count}{RESET}")
     print(f"{RED}❌ Gagal / Sisa     : {fail_count + queue.qsize()}{RESET}")
     if mode == "misi":
-        print(f"📂 Rincian tersimpan di: {shopee_core.RESULTS_MISI_FILE.resolve()}\n")
+        print(f"📂 Rincian tersimpan di: {shopee_core.RESULTS_MISI_FILE.name} (CSV) & {shopee_core.RESULTS_MISI_TXT.name} (TXT)\n")
     elif mode == "food":
-        print(f"📂 Rincian tersimpan di: {shopee_core.RESULTS_FOOD_FILE.resolve()}\n")
+        print(f"📂 Rincian tersimpan di: {shopee_core.RESULTS_FOOD_FILE.name} (CSV) & {shopee_core.RESULTS_FOOD_TXT.name} (TXT)\n")
+        print(f"📂 Akun valid (25k + 12k): {shopee_core.VALID_FOOD_FILE.name} | Akun Diskon 25RB: {shopee_core.DISKON_25K_TXT.name}\n")
     else:
-        print(f"📂 Rincian tersimpan di: {shopee_core.RESULTS_ALL_FILE.resolve()}\n")
+        print(f"📂 Rincian tersimpan di: {shopee_core.RESULTS_ALL_FILE.name} (CSV) & {shopee_core.RESULTS_ALL_TXT.name} (TXT)\n")
 
 
 async def kelola_workers_menu():

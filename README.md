@@ -285,19 +285,34 @@ File konfigurasi disimpan lokal dan tidak akan terupload ke internet. Jika ingin
 
 ## 📊 Penjelasan File Output & Hasil
 
-| Nama File | Fungsi & Keterangan |
-| :--- | :--- |
-| **`hasil_cek_misi.csv`** | Laporan riwayat pengecekan Misi Bayar QRIS (Tanggal, Username, Jumlah Koin, Status SELESAI/BELUM). |
-| **`hasil_voucher_food.csv`** | Laporan rinci pengecekan voucher Food (Status Memenuhi/Parsial, Diskon 25RB, Ongkir 12RB). |
-| **`valid_food.txt`** | Kumpulan username akun yang **lolos syarat lengkap** (memiliki Diskon 25RB + Ongkir 12RB), siap langsung dipakai/disalin. |
-| **`hasil_gabungan.csv`** | Laporan komprehensif jika Anda menjalankan mode "Cek Keduanya Sekaligus". |
+Bot ini otomatis menyimpan hasil dalam **2 format sekaligus** (CSV untuk Excel & TXT untuk dibaca langsung di Termux / Notepad):
+
+| Nama File | Format | Fungsi & Keterangan |
+| :--- | :--- | :--- |
+| **`hasil_gabungan.txt`** / `.csv` | TXT / CSV | Laporan lengkap **Misi QRIS + Voucher Food** (Cek Keduanya). |
+| **`hasil_voucher_food.txt`** / `.csv` | TXT / CSV | Laporan rinci pengecekan voucher Food (Status, Diskon 25RB, Ongkir 12RB). |
+| **`hasil_cek_misi.txt`** / `.csv` | TXT / CSV | Laporan riwayat pengecekan Misi Bayar QRIS (Tanggal, Koin, Status). |
+| **`diskon_25rb.txt`** | TXT | Kumpulan akun yang **memiliki Diskon 25RB** (lengkap maupun parsial). |
+| **`valid_food.txt`** | TXT | Kumpulan akun yang **100% lolos syarat lengkap** (Diskon 25RB + Ongkir 12RB). |
+| **`misi_selesai.txt`** | TXT | Kumpulan akun yang misi bayar QRIS-nya sudah selesai atau berkoin. |
+
+### Cara Membuka Langsung di Layar Termux:
+```bash
+# Membaca isi file teks di layar Termux:
+cat hasil_gabungan.txt
+cat hasil_voucher_food.txt
+cat diskon_25rb.txt
+
+# Buka dengan scroll layar atas-bawah (tekan 'q' untuk keluar):
+less -S hasil_gabungan.txt
+```
 
 ### Cara Membuka / Menyalin File Hasil ke Memori HP:
-Jalankan perintah ini di Termux untuk menyalin file ke folder **Download** HP:
+Jalankan perintah ini di Termux untuk menyalin semua file hasil ke folder **Download** HP:
 ```bash
-cp hasil_*.csv valid_food.txt /sdcard/Download/
+cp hasil_*.* valid_food.txt diskon_25rb.txt /sdcard/Download/
 ```
-Buka folder **Download** di File Manager HP Anda, dan file CSV bisa langsung dibuka dengan **WPS Office**, **Excel**, atau **Google Spreadsheet**!
+Buka folder **Download** di File Manager HP Anda, bisa langsung dibuka menggunakan aplikasi teks, **WPS Office**, atau **Excel**!
 
 ---
 

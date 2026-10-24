@@ -30,6 +30,11 @@ RESULTS_MISI_FILE = Path("hasil_cek_misi.csv")
 RESULTS_FOOD_FILE = Path("hasil_voucher_food.csv")
 RESULTS_ALL_FILE = Path("hasil_gabungan.csv")
 VALID_FOOD_FILE = Path("valid_food.txt")
+RESULTS_MISI_TXT = Path("hasil_cek_misi.txt")
+RESULTS_FOOD_TXT = Path("hasil_voucher_food.txt")
+RESULTS_ALL_TXT = Path("hasil_gabungan.txt")
+DISKON_25K_TXT = Path("diskon_25rb.txt")
+MISI_SELESAI_TXT = Path("misi_selesai.txt")
 DOWNLOAD_DIR = Path("downloads")
 
 STEP_DELAY = 2.5
@@ -561,19 +566,31 @@ async def check_one_mission(client, username: str, auth_method: str = "username"
 
 
 def save_mission_result(username: str, coins, status: str, detail: str):
-    """Menyimpan hasil cek misi ke file CSV."""
+    """Menyimpan hasil cek misi ke file CSV dan TXT."""
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     file_exists = RESULTS_MISI_FILE.exists() and RESULTS_MISI_FILE.stat().st_size > 0
     with RESULTS_MISI_FILE.open("a", newline="", encoding="utf-8-sig") as stream:
         writer = csv.writer(stream)
         if not file_exists:
             writer.writerow(["Tanggal & Waktu", "Username", "Koin Bayar QRIS", "Status", "Keterangan"])
         writer.writerow([
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            now_str,
             username,
             coins if coins is not None else "-",
             status,
             detail or "-",
         ])
+
+    # Simpan juga ke file TXT rapi
+    try:
+        with RESULTS_MISI_TXT.open("a", encoding="utf-8") as f_txt:
+            c_str = f"{coins:,} koin" if coins is not None else "-"
+            f_txt.write(f"[{now_str}] {username} | Bayar QRIS: {c_str} | Status: {status} | {detail or '-'}\n")
+        if status == "SELESAI" or (coins is not None and coins > 0):
+            with MISI_SELESAI_TXT.open("a", encoding="utf-8") as f_selesai:
+                f_selesai.write(f"{username}\n")
+    except Exception:
+        pass
 
 
 # =====================================================================
@@ -709,14 +726,15 @@ async def check_one_food(client, username: str, auth_method: str = "username"):
 
 
 def save_food_result(username: str, is_valid: bool, status: str, detail: str, has_25k: bool, has_12k: bool):
-    """Menyimpan hasil pengecekan voucher Food ke CSV dan file teks akun valid."""
+    """Menyimpan hasil pengecekan voucher Food ke CSV, TXT, dan daftar akun lolos."""
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     file_exists = RESULTS_FOOD_FILE.exists() and RESULTS_FOOD_FILE.stat().st_size > 0
     with RESULTS_FOOD_FILE.open("a", newline="", encoding="utf-8-sig") as stream:
         writer = csv.writer(stream)
         if not file_exists:
             writer.writerow(["Tanggal & Waktu", "Username", "Status", "Diskon 25RB", "Ongkir 12RB", "Keterangan"])
         writer.writerow([
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            now_str,
             username,
             status,
             "ADA" if has_25k else "TIDAK",
@@ -724,9 +742,24 @@ def save_food_result(username: str, is_valid: bool, status: str, detail: str, ha
             detail or "-",
         ])
 
-    if is_valid:
-        with VALID_FOOD_FILE.open("a", encoding="utf-8") as f:
-            f.write(f"{username}\n")
+    try:
+        # Simpan juga ke file TXT rapi
+        with RESULTS_FOOD_TXT.open("a", encoding="utf-8") as f_txt:
+            d25 = "ADA" if has_25k else "TIDAK"
+            o12 = "ADA" if has_12k else "TIDAK"
+            f_txt.write(f"[{now_str}] {username} | Status: {status} | Diskon 25RB: {d25} | Ongkir 12RB: {o12} | {detail or '-'}\n")
+
+        # Akun dengan Diskon 25RB (baik lengkap maupun parsial)
+        if has_25k:
+            with DISKON_25K_TXT.open("a", encoding="utf-8") as f_25:
+                f_25.write(f"{username}\n")
+
+        # Akun lengkap memenuhi syarat (Diskon 25RB + Ongkir 12RB)
+        if is_valid:
+            with VALID_FOOD_FILE.open("a", encoding="utf-8") as f_val:
+                f_val.write(f"{username}\n")
+    except Exception:
+        pass
 
 
 # =====================================================================
@@ -734,17 +767,26 @@ def save_food_result(username: str, is_valid: bool, status: str, detail: str, ha
 # =====================================================================
 
 def save_combined_result(username: str, qris_coins, qris_status: str, food_status: str, food_detail: str):
-    """Menyimpan laporan ringkas gabungan ke CSV."""
+    """Menyimpan laporan ringkas gabungan ke CSV dan TXT."""
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     file_exists = RESULTS_ALL_FILE.exists() and RESULTS_ALL_FILE.stat().st_size > 0
     with RESULTS_ALL_FILE.open("a", newline="", encoding="utf-8-sig") as stream:
         writer = csv.writer(stream)
         if not file_exists:
             writer.writerow(["Tanggal & Waktu", "Username", "Koin QRIS", "Status Misi QRIS", "Status Voucher Food", "Keterangan Food"])
         writer.writerow([
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            now_str,
             username,
             qris_coins if qris_coins is not None else "-",
             qris_status,
             food_status,
             food_detail or "-",
         ])
+
+    try:
+        # Simpan juga ke file TXT rapi
+        with RESULTS_ALL_TXT.open("a", encoding="utf-8") as f_txt:
+            q_str = f"{qris_coins:,} koin" if qris_coins is not None else "-"
+            f_txt.write(f"[{now_str}] {username} | QRIS: {q_str} ({qris_status}) | Food: {food_status} ({food_detail or '-'})\n")
+    except Exception:
+        pass
