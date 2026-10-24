@@ -451,7 +451,22 @@ def detect_bot_error(text: str):
 # 1. FITUR CEK MISI BAYAR QRIS (CHECK-IN)
 # =====================================================================
 
-def parse_qris_result(text: str):
+def check_has_recheck_button(msg) -> bool:
+    """Mengecek apakah pesan bot sudah selesai dan menampilkan tombol Recheck Misi."""
+    if not msg or not getattr(msg, "buttons", None):
+        return False
+    try:
+        for row in msg.buttons:
+            for btn in row:
+                txt = (getattr(btn, "text", "") or "").casefold()
+                if any(k in txt for k in ("recheck", "cek ulang", "refresh", "kembali")):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def parse_qris_result(text: str, has_finished_button: bool = False):
     """Mengekstrak informasi koin QRIS dan status dari teks bot."""
     if not text:
         return None
@@ -475,43 +490,47 @@ def parse_qris_result(text: str):
     has_misi_header = any(h in lower_text for h in ("misi checkin", "misi check-in", "misi check in", "claim misi", "misi shopeepay"))
     qris_lines = [line for line in lines if "bayar qris" in line.casefold() or "qris" in line.casefold()]
 
-    if not has_misi_header and not qris_lines:
-        return None
+    # Jika baris QRIS ditemukan di dalam teks bot, langsung ekstrak hasilnya
+    if qris_lines:
+        line = qris_lines[0]
 
-    # Jika bot sudah mengirim daftar misi tapi misi QRIS memang tidak ada di akun ini
-    if not qris_lines:
+        # Ekstrak jumlah koin jika ada
+        amount = None
+        matches = re.findall(r"(?<!\d)([\d.,\s]+)\s*koin\b", line, re.IGNORECASE)
+        if not matches:
+            matches = re.findall(r"(?<!\d)([\d.,\s]+)\s*koin\b", text, re.IGNORECASE)
+        for raw_amount in matches:
+            digits = re.sub(r"\D", "", raw_amount)
+            if digits:
+                amount = int(digits)
+                break
+
+        lower_line = line.casefold()
+        if "belum" in lower_line:
+            status = "BELUM SELESAI"
+        elif any(k in lower_line for k in ("selesai", "berhasil", "sukses")):
+            status = "SELESAI"
+        elif "sudah diclaim" in lower_line or "sudah diklaim" in lower_line:
+            status = "SUDAH DICLAIM"
+        elif any(k in lower_line for k in ("gagal", "error", "dibatasi")):
+            status = "GAGAL"
+        else:
+            status = "SELESAI" if (amount and amount > 0) else "BELUM SELESAI"
+
+        detail = line.replace("➖", "").replace("✅", "").replace("❌", "").replace("⏳", "").replace("⌛", "").strip()
+        return amount, status, detail
+
+    # Jika TIDAK ada baris QRIS:
+    # HANYA simpulkan "TIDAK ADA MISI QRIS" jika bot SUDAH SELESAI memuat seluruh misi
+    # (ditandai dengan munculnya tombol Recheck Misi dan header misi).
+    # Jangan langsung keluar di tengah jalan saat bot masih menyusun baris misi!
+    if has_finished_button and has_misi_header:
         has_other_missions = any(m in lower_text for m in ("install shopeepay", "isi saldo", "shopeepay", "transfer", "spin"))
-        if not (has_misi_header and has_other_missions):
-            return None
-        return None, "TIDAK ADA MISI QRIS", "Misi Bayar QRIS tidak ditemukan di akun ini"
+        if has_other_missions:
+            return None, "TIDAK ADA MISI QRIS", "Misi Bayar QRIS tidak ditemukan di akun ini"
 
-    line = qris_lines[0]
-
-    # Ekstrak jumlah koin jika ada
-    amount = None
-    matches = re.findall(r"(?<!\d)([\d.,\s]+)\s*koin\b", line, re.IGNORECASE)
-    if not matches and qris_lines:
-        matches = re.findall(r"(?<!\d)([\d.,\s]+)\s*koin\b", text, re.IGNORECASE)
-    for raw_amount in matches:
-        digits = re.sub(r"\D", "", raw_amount)
-        if digits:
-            amount = int(digits)
-            break
-
-    lower_line = line.casefold()
-    if "belum" in lower_line:
-        status = "BELUM SELESAI"
-    elif any(k in lower_line for k in ("selesai", "berhasil", "sukses")):
-        status = "SELESAI"
-    elif "sudah diclaim" in lower_line or "sudah diklaim" in lower_line:
-        status = "SUDAH DICLAIM"
-    elif any(k in lower_line for k in ("gagal", "error", "dibatasi")):
-        status = "GAGAL"
-    else:
-        status = "SELESAI" if (amount and amount > 0) else "BELUM SELESAI"
-
-    detail = line.replace("➖", "").replace("✅", "").replace("❌", "").replace("⏳", "").strip()
-    return amount, status, detail
+    # Jika bot belum menampilkan baris QRIS dan belum selesai, kembalikan None agar polling terus menunggu
+    return None
 
 
 async def check_one_mission(client, username: str, auth_method: str = "username"):
@@ -565,23 +584,43 @@ async def check_one_mission(client, username: str, auth_method: str = "username"
     # 3. Kirim username / cookie
     sent_msg = await client.send_message(TARGET_BOT, username.strip())
     last_seen = {}
+    last_misi_state = None
     deadline = asyncio.get_running_loop().time() + RESULT_TIMEOUT
     while asyncio.get_running_loop().time() < deadline:
         messages = await client.get_messages(TARGET_BOT, limit=15)
-        for msg in sorted((m for m in messages if (m.id > sent_msg.id or m.id >= start_id) and not m.out), key=lambda m: m.id):
+        # Hanya periksa pesan bot yang masuk setelah username dikirim
+        for msg in sorted((m for m in messages if m.id > sent_msg.id and not m.out), key=lambda m: m.id):
             text = (msg.text or "").strip()
-            if not text or last_seen.get(msg.id) == text:
+            if not text:
                 continue
-            last_seen[msg.id] = text
+
+            has_btn = check_has_recheck_button(msg)
+            cache_key = f"{msg.id}_{has_btn}_{text}"
+            if last_seen.get(msg.id) == cache_key:
+                continue
+            last_seen[msg.id] = cache_key
 
             err = detect_bot_error(text)
             if err:
                 return None, err, text
 
-            result = parse_qris_result(text)
+            result = parse_qris_result(text, has_finished_button=has_btn)
             if result:
                 return result
+
+            # Catat pesan yang memiliki format misi untuk evaluasi akhir jika timeout
+            if any(h in text.casefold() for h in ("misi checkin", "misi check-in", "misi check in", "claim misi")):
+                last_misi_state = (text, has_btn)
+
         await asyncio.sleep(POLL_INTERVAL)
+
+    # Jika timeout tetapi bot sempat mengirim daftar misi lengkap tanpa baris QRIS
+    if last_misi_state:
+        final_text, _ = last_misi_state
+        result = parse_qris_result(final_text, has_finished_button=True)
+        if result:
+            return result
+        return None, "TIDAK ADA MISI QRIS", "Misi Bayar QRIS tidak ditemukan di akun ini"
 
     return None, "TIMEOUT", "Timeout menunggu balasan bot"
 
