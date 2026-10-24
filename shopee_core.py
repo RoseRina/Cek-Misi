@@ -597,20 +597,74 @@ def save_mission_result(username: str, coins, status: str, detail: str):
 # 2. FITUR CEK VOUCHER SHOPEE FOOD (DISKON 25RB & ONGKIR 12RB)
 # =====================================================================
 
+def is_shopeefood_25k_voucher(html_content: str) -> bool:
+    """Mendeteksi secara akurat apakah terdapat voucher ShopeeFood Diskon 100% s.d. Rp25RB
+    (Tanpa min. belanja - Pengguna Baru ShopeePay), BUKAN voucher global 25k biasa.
+    """
+    if not html_content:
+        return False
+
+    lower = html_content.casefold()
+
+    # 1. Deteksi lewat kode voucher resmi ShopeePay ShopeeFood (SPPSF...)
+    # Contoh kode: SPPSF25330008763533159320261023 atau SPPSF203300087635331
+    if "sppsf" in lower:
+        if bool(re.search(r"sppsf[0-9a-z]*25", lower)) or "sppsf25" in lower or "sppsf20" in lower:
+            return True
+        if "100%" in lower or "25rb" in lower or "25.000" in lower:
+            return True
+
+    # 2. Deteksi teks persis: "Diskon 100% s.d. Rp25RB" / "Diskon 100% s.d. 25RB"
+    if bool(re.search(r"diskon\s*100%\s*s\.?d\.?\s*(?:rp)?25\s*rb", lower)):
+        return True
+    if bool(re.search(r"diskon\s*100%\s*s\.?d\.?\s*(?:rp)?25\.?000", lower)):
+        return True
+
+    # 3. Deteksi ShopeeFood + Diskon 100% + 25RB
+    has_food_brand = ("shopeefood" in lower) or ("shopee food" in lower)
+    has_100_pct = ("100%" in lower) or ("diskon 100%" in lower)
+    has_25k_nominal = ("25rb" in lower) or ("25.000" in lower) or ("rp25rb" in lower)
+
+    if has_food_brand and has_100_pct and has_25k_nominal:
+        return True
+
+    # 4. Deteksi 100% + 25RB + "Tanpa min. belanja"
+    has_no_min = ("tanpa min" in lower) or ("min. blj rp0" in lower) or ("min. belanja rp0" in lower)
+    if has_100_pct and has_25k_nominal and has_no_min:
+        return True
+
+    # 5. Deteksi 100% + 25RB + ("Pengguna Baru" atau "ShopeePay")
+    if has_100_pct and has_25k_nominal and ("pengguna baru" in lower or "shopeepay" in lower):
+        return True
+
+    return False
+
+
+def is_shopeefood_ongkir_12k(html_content: str) -> bool:
+    """Mendeteksi voucher Diskon Ongkir 12RB ShopeeFood."""
+    if not html_content:
+        return False
+    lower = html_content.casefold()
+
+    # Kode SPPSH (ShopeePay Shipping)
+    if "sppsh" in lower and ("12rb" in lower or "12.000" in lower or "sppsh24" in lower):
+        return True
+
+    if "diskon ongkir rp12rb" in lower or "diskon ongkir 12rb" in lower or "ongkir rp12rb" in lower:
+        return True
+
+    if ("12rb" in lower or "12.000" in lower) and ("ongkir" in lower):
+        return True
+
+    return False
+
+
 def validate_voucher_html(file_path: Path):
-    """Memeriksa apakah file HTML voucher berisi voucher Diskon 25RB & Ongkir 12RB."""
+    """Memeriksa apakah file HTML voucher berisi voucher ShopeeFood Diskon 25RB & Ongkir 12RB."""
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
-        has_ongkir = (
-            ("SPPSH243300087635331" in content)
-            or ("Diskon Ongkir Rp12RB" in content)
-            or ("12RB" in content and "Ongkir" in content)
-        )
-        has_diskon = (
-            ("SPPSF203300087635331" in content)
-            or ("Diskon 100% s.d. Rp25RB" in content)
-            or ("25RB" in content and "Diskon" in content)
-        )
+        has_diskon = is_shopeefood_25k_voucher(content)
+        has_ongkir = is_shopeefood_ongkir_12k(content)
         return has_diskon, has_ongkir
     except Exception:
         return False, False
@@ -707,19 +761,19 @@ async def check_one_food(client, username: str, auth_method: str = "username"):
 
     if has_25k and has_12k:
         status = "MEMENUHI SYARAT"
-        detail = "Lengkap (Diskon 25RB & Ongkir 12RB)"
+        detail = "Lengkap (Diskon 25RB Food + Ongkir 12RB)"
         is_valid = True
     elif has_25k:
-        status = "PARSIAL"
-        detail = "Hanya Diskon 25RB (Ongkir 12RB tidak ada)"
-        is_valid = False
+        status = "MEMENUHI SYARAT"
+        detail = "Diskon 100% s.d. 25RB Food (Tanpa Min. Belanja)"
+        is_valid = True
     elif has_12k:
         status = "PARSIAL"
-        detail = "Hanya Ongkir 12RB (Diskon 25RB tidak ada)"
+        detail = "Hanya Ongkir 12RB (Voucher Food 25RB tidak ada)"
         is_valid = False
     else:
         status = "TIDAK MEMENUHI"
-        detail = "Tidak ditemukan voucher 25RB maupun 12RB"
+        detail = "Tidak ada Voucher ShopeeFood 25RB"
         is_valid = False
 
     return is_valid, status, detail, has_25k, has_12k
