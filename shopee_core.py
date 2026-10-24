@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import re
 import sys
+from typing import Optional
 
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError, ApiIdInvalidError, PhoneNumberInvalidError
@@ -156,12 +157,23 @@ def get_credentials():
     return api_id, api_hash
 
 
-def create_client():
-    """Membuat instance TelegramClient."""
+def get_available_telegram_sessions() -> list[str]:
+    """Mencari seluruh file sesi Telegram (*.session) yang tersimpan di direktori saat ini."""
+    sessions = []
+    for p in sorted(Path(".").glob("*.session")):
+        base_name = p.stem
+        if base_name and base_name not in sessions:
+            sessions.append(base_name)
+    if not sessions:
+        sessions.append(SESSION_NAME)
+    return sessions
+
+
+def create_client(session_name: Optional[str] = None):
+    """Membuat instance TelegramClient (bisa menentukan nama sesi untuk multi-worker)."""
     api_id, api_hash = get_credentials()
-    # Jika sesi alternatif ada dari food.py, gunakan
-    session = SESSION_NAME
-    if not Path(f"{SESSION_NAME}.session").exists() and Path("session_checker.session").exists():
+    session = session_name or SESSION_NAME
+    if not session_name and not Path(f"{SESSION_NAME}.session").exists() and Path("session_checker.session").exists():
         session = "session_checker"
     return TelegramClient(session, api_id, api_hash)
 

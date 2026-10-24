@@ -57,7 +57,8 @@ def print_banner():
  {WHITE}2.{RESET} 🍔 {BOLD}Cek Voucher Shopee Food{RESET}  (Diskon 25RB & Ongkir 12RB)
  {WHITE}3.{RESET} ⚡ {BOLD}Cek Keduanya Sekaligus{RESET}   (Misi QRIS + Voucher Food)
  {WHITE}4.{RESET} 📦 {BOLD}MODE MASSAL / BULK CEPAT{RESET} (Auto-Detect File .txt & Resume)
- {WHITE}5.{RESET} ⚙️  {BOLD}Reset Pengaturan{RESET}        (Hapus Sesi & API Telegram)
+ {WHITE}5.{RESET} 👥 {BOLD}Kelola Multi-Worker{RESET}     (Multi-Login Akun Telegram)
+ {WHITE}6.{RESET} ⚙️  {BOLD}Reset Pengaturan{RESET}        (Hapus Sesi & API Telegram)
  {WHITE}0.{RESET} 🚪 {BOLD}Keluar{RESET}
 {CYAN}======================================================================{RESET}
 """
@@ -261,6 +262,188 @@ async def run_both_mode(client, usernames, auth_method="username", step_delay=2.
     print(f"📂 Hasil lengkap gabungan tersimpan di: {shopee_core.RESULTS_ALL_FILE.resolve()}\n")
 
 
+async def run_worker_pool_mode(clients, usernames, mode="misi", auth_method="auto", step_delay=2.5):
+    """Menjalankan pengecekan secara paralel menggunakan multiple worker Telegram."""
+    total = len(usernames)
+    num_workers = len(clients)
+    print(f"\n{YELLOW}{BOLD}🚀 Memulai Multi-Worker Parallel Engine ({num_workers} Worker Telegram, {total} Akun)...{RESET}\n")
+
+    # Ambil info identitas setiap worker
+    worker_infos = []
+    for idx, c in enumerate(clients, 1):
+        try:
+            me = await c.get_me()
+            lbl = f"Worker {idx} (@{me.username or me.phone})"
+        except Exception:
+            lbl = f"Worker {idx}"
+        worker_infos.append(lbl)
+
+    queue = asyncio.Queue()
+    for idx, u in enumerate(usernames, 1):
+        await queue.put((idx, u))
+
+    lock = asyncio.Lock()
+    processed_count = 0
+    success_count = 0
+    fail_count = 0
+
+    async def worker_loop(w_idx: int, client):
+        nonlocal processed_count, success_count, fail_count
+        w_name = worker_infos[w_idx]
+
+        while not queue.empty():
+            try:
+                idx, user = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+            bar = shopee_core.render_progress_bar(idx, total)
+            display = shopee_core.format_account_display(user, auth_method)
+            print(f"{CYAN}{bar}{RESET} [{MAGENTA}{w_name}{RESET}] {BOLD}{display}{RESET}")
+
+            try:
+                if mode == "misi":
+                    coins, status, detail = await shopee_core.check_one_mission(client, user, auth_method=auth_method)
+                    shopee_core.save_mission_result(user, coins, status, detail)
+                    color = GREEN if status == "SELESAI" else YELLOW
+                    c_txt = f"{coins:,} koin" if coins is not None else "-"
+                    print(f"  └─ [{w_name}] {color}Bayar QRIS: {c_txt} | Status: {status}{RESET}\n")
+                    async with lock:
+                        if coins is not None:
+                            success_count += 1
+                        else:
+                            fail_count += 1
+                        processed_count += 1
+
+                elif mode == "food":
+                    is_valid, status, detail, has_25k, has_12k = await shopee_core.check_one_food(client, user, auth_method=auth_method)
+                    shopee_core.save_food_result(user, is_valid, status, detail, has_25k, has_12k)
+                    color = GREEN if is_valid else (YELLOW if status == "PARSIAL" else RED)
+                    icon = "✅" if is_valid else ("⚠️" if status == "PARSIAL" else "❌")
+                    print(f"  └─ [{w_name}] {color}{icon} {status} ({detail}){RESET}\n")
+                    async with lock:
+                        if is_valid:
+                            success_count += 1
+                        else:
+                            fail_count += 1
+                        processed_count += 1
+
+                elif mode == "both":
+                    coins, m_status, m_detail = await shopee_core.check_one_mission(client, user, auth_method=auth_method)
+                    shopee_core.save_mission_result(user, coins, m_status, m_detail)
+                    await asyncio.sleep(step_delay)
+                    is_valid, f_status, f_detail, has_25k, has_12k = await shopee_core.check_one_food(client, user, auth_method=auth_method)
+                    shopee_core.save_food_result(user, is_valid, f_status, f_detail, has_25k, has_12k)
+                    shopee_core.save_combined_result(user, coins, m_status, f_status, f_detail)
+                    color = GREEN if is_valid else YELLOW
+                    print(f"  └─ [{w_name}] {color}Misi: {m_status} | Food: {f_status} ({f_detail}){RESET}\n")
+                    async with lock:
+                        processed_count += 1
+                        success_count += 1
+
+            except FloodWaitError as exc:
+                print(f"  └─ [{w_name}] {RED}⚠️ Telegram FloodWait {exc.seconds}s! Mengembalikan target ke antrean...{RESET}\n")
+                await queue.put((idx, user))
+                queue.task_done()
+                break
+            except Exception as exc:
+                print(f"  └─ [{w_name}] {RED}Error: {exc}{RESET}\n")
+                async with lock:
+                    fail_count += 1
+                    processed_count += 1
+            finally:
+                try:
+                    queue.task_done()
+                except ValueError:
+                    pass
+
+            await asyncio.sleep(step_delay)
+
+    tasks = [asyncio.create_task(worker_loop(i, c)) for i, c in enumerate(clients)]
+    await asyncio.gather(*tasks)
+
+    print(f"\n{CYAN}{BOLD}==================== LAPORAN MULTI-WORKER SELESAI ===================={RESET}")
+    print(f"🎯 Total Akun       : {total}")
+    print(f"👥 Worker Aktif     : {num_workers}")
+    print(f"{GREEN}✅ Berhasil Dicek   : {success_count}{RESET}")
+    print(f"{RED}❌ Gagal / Sisa     : {fail_count + queue.qsize()}{RESET}")
+    if mode == "misi":
+        print(f"📂 Rincian tersimpan di: {shopee_core.RESULTS_MISI_FILE.resolve()}\n")
+    elif mode == "food":
+        print(f"📂 Rincian tersimpan di: {shopee_core.RESULTS_FOOD_FILE.resolve()}\n")
+    else:
+        print(f"📂 Rincian tersimpan di: {shopee_core.RESULTS_ALL_FILE.resolve()}\n")
+
+
+async def kelola_workers_menu():
+    """Menu interaktif untuk menambah, melihat, dan menghapus sesi worker Telegram."""
+    while True:
+        sessions = shopee_core.get_available_telegram_sessions()
+        print(f"\n{CYAN}{BOLD}===================================================={RESET}")
+        print(f"👥 {BOLD}PENGELOLAAN MULTI-WORKER TELEGRAM{RESET}")
+        print(f"{CYAN}===================================================={RESET}")
+        print(f"Total sesi terdaftar: {len(sessions)} worker")
+        for i, s in enumerate(sessions, 1):
+            print(f"  [{i}] 📱 {s}.session")
+        print("\nPilihan:")
+        print("  [1] ➕ Tambah Akun Telegram Worker Baru")
+        print("  [2] 📋 Tes & Tampilkan Status Semua Worker")
+        print("  [3] 🗑️ Hapus Salah Satu Sesi Worker")
+        print("  [0] ↩️ Kembali ke Menu Utama")
+
+        p = input(f"{WHITE}Pilih menu [1/2/3/0]: {RESET}").strip()
+        if p == "1":
+            new_name = input("\nMasukkan nama file unik worker baru (contoh: worker2, akun_b): ").strip()
+            if not new_name:
+                new_name = f"worker_{len(sessions) + 1}"
+            client = shopee_core.create_client(new_name)
+            try:
+                await shopee_core.start_client(client)
+                me = await client.get_me()
+                name = me.first_name or "Telegram User"
+                uname = f"@{me.username}" if me.username else f"+{me.phone}"
+                print(f"\n{GREEN}{BOLD}🎉 Berhasil menambahkan Worker Baru: {name} ({uname}) [{new_name}.session]!{RESET}")
+            except Exception as e:
+                print(f"\n{RED}❌ Gagal menambahkan worker: {e}{RESET}")
+            finally:
+                if client.is_connected():
+                    await client.disconnect()
+        elif p == "2":
+            print(f"\n{YELLOW}🔍 Memeriksa status koneksi seluruh sesi worker...{RESET}")
+            for s in sessions:
+                c = shopee_core.create_client(s)
+                try:
+                    await c.connect()
+                    if await c.is_user_authorized():
+                        me = await c.get_me()
+                        name = me.first_name or "User"
+                        uname = f"@{me.username}" if me.username else f"+{me.phone}"
+                        print(f"  • {GREEN}🟢 {s}.session{RESET} -> {name} ({uname}) [UID: {me.id}]")
+                    else:
+                        print(f"  • {RED}🔴 {s}.session{RESET} -> Belum login / Sesi kedaluwarsa")
+                except Exception as e:
+                    print(f"  • {RED}❌ {s}.session{RESET} -> Error: {e}")
+                finally:
+                    if c.is_connected():
+                        await c.disconnect()
+        elif p == "3":
+            if not sessions:
+                print("Tidak ada sesi yang dapat dihapus.")
+                continue
+            print("\nPilih sesi yang ingin dihapus:")
+            for i, s in enumerate(sessions, 1):
+                print(f"  [{i}] {s}.session")
+            del_idx = input(f"Ketik nomor sesi yang ingin dihapus (1-{len(sessions)}, 0 batal): ").strip()
+            if del_idx.isdigit() and 1 <= int(del_idx) <= len(sessions):
+                target = sessions[int(del_idx) - 1]
+                p_file = Path(f"{target}.session")
+                if p_file.exists():
+                    p_file.unlink()
+                    print(f"{GREEN}✅ File sesi {target}.session berhasil dihapus!{RESET}")
+        elif p in ("0", "q", "exit"):
+            break
+
+
 def pilih_metode_auth():
     """Meminta pengguna memilih metode login ke bot Shopee."""
     print(f"\n{CYAN}{BOLD}🔑 PILIH METODE LOGIN BOT (@shp_tools_bot):{RESET}")
@@ -333,9 +516,9 @@ async def main():
 
     # Jika mode belum dipilih, tampilkan menu utama interaktif
     if not selected_mode:
-        print_banner()
         while True:
-            choice = input(f"{WHITE}Pilih menu [1/2/3/4/5/0]: {RESET}").strip()
+            print_banner()
+            choice = input(f"{WHITE}Pilih menu [1/2/3/4/5/6/0]: {RESET}").strip()
             if choice == "1":
                 selected_mode = "misi"
                 break
@@ -362,13 +545,16 @@ async def main():
                     selected_mode = "misi"
                 break
             elif choice == "5":
+                await kelola_workers_menu()
+                continue
+            elif choice == "6":
                 shopee_core.reset_credentials()
                 return
             elif choice in ("0", "q", "exit"):
                 print("Sampai jumpa!")
                 return
             else:
-                print("❌ Pilihan tidak valid, silakan ketik angka 1 sampai 5, atau 0.")
+                print("❌ Pilihan tidak valid, silakan ketik angka 1 sampai 6, atau 0.")
 
     # Jika metode login belum dipilih dari argumen CLI
     if not auth_method:
@@ -412,20 +598,50 @@ async def main():
 
     print(f"\n{GREEN}✅ Total akun/cookie yang akan diproses: {len(usernames)} akun (Metode: {auth_method.upper()}).{RESET}")
 
-    # Buat client dan koneksi Telegram
-    client = shopee_core.create_client()
-    try:
-        await shopee_core.start_client(client)
-        print(f"{GREEN}✅ Terhubung ke Telegram! Memulai antrean...{RESET}")
+    # Cek ketersediaan Multi-Worker
+    sessions = shopee_core.get_available_telegram_sessions()
+    use_multi = False
+    if len(sessions) > 1 and len(usernames) > 1:
+        print(f"\n{CYAN}{BOLD}👥 TERDETEKSI {len(sessions)} SESI TELEGRAM WORKER:{RESET}")
+        for s in sessions:
+            print(f"  • {s}.session")
+        print(" [1] 🚀 Jalankan Multi-Worker Paralel (Lebih cepat, beban dibagi rata)")
+        print(" [2] 👤 Jalankan 1 Akun Telegram Saja (Standar)")
+        w_choice = input(f"{WHITE}Pilih mode eksekusi [1/2, default 1]: {RESET}").strip()
+        if w_choice in ("", "1"):
+            use_multi = True
 
-        if selected_mode == "misi":
-            await run_misi_mode(client, usernames, auth_method=auth_method, step_delay=delay)
-        elif selected_mode == "food":
-            await run_food_mode(client, usernames, auth_method=auth_method, step_delay=delay)
-        elif selected_mode == "both":
-            await run_both_mode(client, usernames, auth_method=auth_method, step_delay=delay)
-    finally:
-        await client.disconnect()
+    if use_multi:
+        clients = [shopee_core.create_client(s) for s in sessions]
+        active_clients = []
+        try:
+            for c in clients:
+                await shopee_core.start_client(c)
+                active_clients.append(c)
+            print(f"\n{GREEN}✅ {len(active_clients)} Worker Telegram siap bertugas!{RESET}")
+            await run_worker_pool_mode(active_clients, usernames, mode=selected_mode, auth_method=auth_method, step_delay=delay)
+        finally:
+            for c in active_clients:
+                try:
+                    await c.disconnect()
+                except Exception:
+                    pass
+    else:
+        # Single client
+        primary_session = sessions[0] if sessions else None
+        client = shopee_core.create_client(primary_session)
+        try:
+            await shopee_core.start_client(client)
+            print(f"{GREEN}✅ Terhubung ke Telegram! Memulai antrean...{RESET}")
+
+            if selected_mode == "misi":
+                await run_misi_mode(client, usernames, auth_method=auth_method, step_delay=delay)
+            elif selected_mode == "food":
+                await run_food_mode(client, usernames, auth_method=auth_method, step_delay=delay)
+            elif selected_mode == "both":
+                await run_both_mode(client, usernames, auth_method=auth_method, step_delay=delay)
+        finally:
+            await client.disconnect()
 
 
 if __name__ == "__main__":
