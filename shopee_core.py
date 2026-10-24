@@ -598,62 +598,50 @@ def save_mission_result(username: str, coins, status: str, detail: str):
 # =====================================================================
 
 def is_shopeefood_25k_voucher(html_content: str) -> bool:
-    """Mendeteksi secara akurat apakah terdapat voucher ShopeeFood Diskon 100% s.d. Rp25RB
-    (Tanpa min. belanja - Pengguna Baru ShopeePay), BUKAN voucher global 25k biasa.
+    """Mendeteksi secara ketat voucher ShopeeFood Diskon 100% s.d. Rp25RB
+    (Tanpa min. belanja - Pengguna Baru ShopeePay - SPPSF2533...),
+    BUKAN voucher global 25k atau voucher lain di akun.
     """
     if not html_content:
         return False
 
-    lower = html_content.casefold()
+    clean = " ".join(re.sub(r"<[^>]+>", " ", html_content).split())
 
-    # 1. Deteksi lewat kode voucher resmi ShopeePay ShopeeFood (SPPSF...)
-    # Contoh kode: SPPSF25330008763533159320261023 atau SPPSF203300087635331
-    if "sppsf" in lower:
-        if bool(re.search(r"sppsf[0-9a-z]*25", lower)) or "sppsf25" in lower or "sppsf20" in lower:
+    # 1. Kode voucher khusus campaign ShopeePay ShopeeFood 25k: SPPSF2533... atau SPPSF2033...
+    if re.search(r"SPPSF2[05]33", clean, re.IGNORECASE):
+        return True
+
+    # 2. Judul voucher persis: "Diskon 100% s.d. Rp25RB" / "Diskon 100% s.d. 25RB" / "Diskon 100% s.d. Rp25.000"
+    if re.search(r"Diskon\s*100%\s*s\.?d\.?\s*(?:Rp)?25(?:\s*RB|\.?000)", clean, re.IGNORECASE):
+        return True
+
+    # 3. Kombinasi ketat dalam 1 voucher: Pengguna Baru + Diskon 100% + 25RB/25.000
+    if ("pengguna baru" in clean.casefold() or "user baru" in clean.casefold()):
+        if re.search(r"100%[\s\S]{1,50}?(?:25\s*RB|25\.?000)", clean, re.IGNORECASE) or re.search(r"(?:25\s*RB|25\.?000)[\s\S]{1,50}?100%", clean, re.IGNORECASE):
             return True
-        if "100%" in lower or "25rb" in lower or "25.000" in lower:
-            return True
 
-    # 2. Deteksi teks persis: "Diskon 100% s.d. Rp25RB" / "Diskon 100% s.d. 25RB"
-    if bool(re.search(r"diskon\s*100%\s*s\.?d\.?\s*(?:rp)?25\s*rb", lower)):
-        return True
-    if bool(re.search(r"diskon\s*100%\s*s\.?d\.?\s*(?:rp)?25\.?000", lower)):
-        return True
-
-    # 3. Deteksi ShopeeFood + Diskon 100% + 25RB
-    has_food_brand = ("shopeefood" in lower) or ("shopee food" in lower)
-    has_100_pct = ("100%" in lower) or ("diskon 100%" in lower)
-    has_25k_nominal = ("25rb" in lower) or ("25.000" in lower) or ("rp25rb" in lower)
-
-    if has_food_brand and has_100_pct and has_25k_nominal:
-        return True
-
-    # 4. Deteksi 100% + 25RB + "Tanpa min. belanja"
-    has_no_min = ("tanpa min" in lower) or ("min. blj rp0" in lower) or ("min. belanja rp0" in lower)
-    if has_100_pct and has_25k_nominal and has_no_min:
-        return True
-
-    # 5. Deteksi 100% + 25RB + ("Pengguna Baru" atau "ShopeePay")
-    if has_100_pct and has_25k_nominal and ("pengguna baru" in lower or "shopeepay" in lower):
-        return True
+    # 4. Kombinasi ketat: "Tanpa min. belanja" + 100% + 25RB ShopeeFood
+    if ("tanpa min" in clean.casefold() or "min. blj rp0" in clean.casefold()):
+        if ("shopeefood" in clean.casefold() or "shopee food" in clean.casefold() or "sppsf" in clean.casefold()):
+            if re.search(r"100%[\s\S]{1,50}?(?:25\s*RB|25\.?000)", clean, re.IGNORECASE):
+                return True
 
     return False
 
 
 def is_shopeefood_ongkir_12k(html_content: str) -> bool:
-    """Mendeteksi voucher Diskon Ongkir 12RB ShopeeFood."""
+    """Mendeteksi secara ketat voucher Diskon Ongkir 12RB ShopeeFood."""
     if not html_content:
         return False
-    lower = html_content.casefold()
 
-    # Kode SPPSH (ShopeePay Shipping)
-    if "sppsh" in lower and ("12rb" in lower or "12.000" in lower or "sppsh24" in lower):
+    clean = " ".join(re.sub(r"<[^>]+>", " ", html_content).split())
+
+    # 1. Kode voucher resmi: SPPSH2433... / SPPSH2033...
+    if re.search(r"SPPSH2[04]33", clean, re.IGNORECASE):
         return True
 
-    if "diskon ongkir rp12rb" in lower or "diskon ongkir 12rb" in lower or "ongkir rp12rb" in lower:
-        return True
-
-    if ("12rb" in lower or "12.000" in lower) and ("ongkir" in lower):
+    # 2. Judul persis: Diskon Ongkir Rp12RB / Diskon Ongkir s.d. Rp12RB
+    if re.search(r"Diskon\s*Ongkir\s*(?:s\.?d\.?\s*)?(?:Rp)?12(?:\s*RB|\.?000)", clean, re.IGNORECASE):
         return True
 
     return False
