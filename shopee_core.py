@@ -12,6 +12,7 @@ import asyncio
 import csv
 from datetime import datetime
 import getpass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -202,23 +203,89 @@ async def start_client(client: TelegramClient):
 
 
 # =====================================================================
-# PEMBACAAN & PENGELOLAAN DAFTAR USERNAME (BULK / MASSAL)
+# PEMBACAAN & PENGELOLAAN DAFTAR AKUN & RAW COOKIE (BULK / MASSAL)
 # =====================================================================
 
-def parse_raw_usernames(text: str):
-    """Mengekstrak username unik dari teks multi-baris, dipisah koma, spasi, atau titik koma."""
+def detect_auth_method(account_str: str) -> str:
+    """Mendeteksi apakah input berupa raw cookie Shopee atau username/ID biasa."""
+    if not account_str:
+        return "username"
+    s = account_str.strip()
+    cookie_tokens = ("spc_ec", "spc_u", "spc_st", "spc_t_id", "spc_t_iv", "shopee_token", "shopee.co.id")
+    lower = s.casefold()
+    if any(tok in lower for tok in cookie_tokens):
+        return "cookie"
+    if ";" in s and "=" in s:
+        return "cookie"
+    return "username"
+
+
+def format_account_display(account_str: str, auth_method: str = "auto") -> str:
+    """Membuat label ringkas & elegan untuk akun atau raw cookie agar tampilan tabel/log rapi."""
+    if not account_str:
+        return "-"
+    method = detect_auth_method(account_str) if auth_method == "auto" else auth_method
+    if method == "cookie":
+        uid_match = re.search(r"\bSPC_U=(\d+)", account_str, re.IGNORECASE)
+        if uid_match:
+            return f"🍪 Cookie (UID: {uid_match.group(1)})"
+        ec_match = re.search(r"\bSPC_EC=([a-zA-Z0-9_\-]+)", account_str, re.IGNORECASE)
+        if ec_match:
+            tok = ec_match.group(1)
+            preview = f"{tok[:6]}...{tok[-4:]}" if len(tok) > 12 else tok
+            return f"🍪 Cookie (EC: {preview})"
+        clean = account_str.strip()
+        if len(clean) > 28:
+            return f"🍪 Cookie ({clean[:12]}...{clean[-8:]})"
+        return f"🍪 Cookie ({clean})"
+    return account_str.strip()
+
+
+def parse_raw_accounts(text: str, auth_method: str = "auto"):
+    """Mengekstrak akun/cookie unik dari teks multi-baris.
+    
+    Jika auth_method == 'cookie' atau teks dideteksi sebagai cookie:
+    Parsing dilakukan STRICTLY per baris ([\r\n]+) agar titik koma dan spasi
+    di dalam cookie TIDAK memecah data cookie.
+    Jika auth_method == 'username':
+    Token dipisah oleh koma, spasi, tab, atau baris baru.
+    """
     if not text:
         return []
-    # Pisahkan berdasarkan baris baru, koma, titik koma, dan spasi
-    tokens = re.split(r"[\r\n,;\t\s]+", text)
-    usernames = []
-    seen = set()
-    for token in tokens:
-        clean = token.strip().strip("'\"")
-        if clean and not clean.startswith("#") and clean not in seen:
-            usernames.append(clean)
-            seen.add(clean)
-    return usernames
+
+    is_cookie_mode = False
+    if auth_method == "cookie":
+        is_cookie_mode = True
+    elif auth_method == "auto":
+        lower = text.casefold()
+        if ("spc_ec" in lower or "spc_u" in lower) or (";" in text and "=" in text):
+            is_cookie_mode = True
+
+    if is_cookie_mode:
+        lines = re.split(r"[\r\n]+", text)
+        accounts = []
+        seen = set()
+        for line in lines:
+            clean = line.strip().strip("'\"")
+            if clean and not clean.startswith("#") and clean not in seen:
+                accounts.append(clean)
+                seen.add(clean)
+        return accounts
+    else:
+        tokens = re.split(r"[\r\n,;\t\s]+", text)
+        usernames = []
+        seen = set()
+        for token in tokens:
+            clean = token.strip().strip("'\"")
+            if clean and not clean.startswith("#") and clean not in seen:
+                usernames.append(clean)
+                seen.add(clean)
+        return usernames
+
+
+def parse_raw_usernames(text: str):
+    """Mengekstrak username unik (backward-compatible wrapper)."""
+    return parse_raw_accounts(text, auth_method="auto")
 
 
 def get_available_txt_files():
@@ -287,17 +354,17 @@ def render_progress_bar(current: int, total: int, width: int = 25):
     return f"[{bar}] {percent:>5.1f}% ({current}/{total})"
 
 
-def read_usernames(filepath=None):
-    """Membaca daftar username dari file teks atau interaktif."""
+def read_usernames(filepath=None, auth_method: str = "auto"):
+    """Membaca daftar akun atau raw cookie dari file teks atau interaktif."""
     if filepath:
         path = Path(filepath).expanduser()
         if not path.is_file():
             raise ValueError(f"File daftar tidak ditemukan: {path}")
         content = path.read_text(encoding="utf-8-sig")
-        usernames = parse_raw_usernames(content)
+        usernames = parse_raw_accounts(content, auth_method=auth_method)
     else:
-        print("\nMasukkan username Shopee.")
-        print("(Bisa satu per baris, atau pisahkan dengan koma/spasi).")
+        print("\nMasukkan username atau raw cookie Shopee.")
+        print("(Bisa satu per baris, atau pisahkan dengan koma/spasi untuk username).")
         print("Tekan Enter dua kali (pada baris kosong) jika sudah selesai:")
         lines = []
         while True:
@@ -309,10 +376,10 @@ def read_usernames(filepath=None):
                 break
             if line.strip():
                 lines.append(line)
-        usernames = parse_raw_usernames("\n".join(lines))
+        usernames = parse_raw_accounts("\n".join(lines), auth_method=auth_method)
 
     if not usernames:
-        raise ValueError("Daftar username kosong.")
+        raise ValueError("Daftar akun/cookie kosong.")
     return usernames
 
 
@@ -347,7 +414,14 @@ def detect_bot_error(text: str):
         return "AKUN DIBATASI / BANNED"
     if "akun tidak ditemukan" in normalized or "user not found" in normalized:
         return "AKUN TIDAK DITEMUKAN"
-    if "cookie tidak valid" in normalized:
+    if (
+        "cookie tidak valid" in normalized
+        or "invalid cookie" in normalized
+        or "cookie expired" in normalized
+        or "cookie kadaluarsa" in normalized
+        or "cookie sudah kadaluwarsa" in normalized
+        or "format cookie salah" in normalized
+    ):
         return "COOKIE TIDAK VALID"
     if "akun ini bukan milikmu" in normalized:
         return "BUKAN MILIKMU"
@@ -380,7 +454,7 @@ def parse_qris_result(text: str):
     return amount, status, line
 
 
-async def check_one_mission(client, username: str):
+async def check_one_mission(client, username: str, auth_method: str = "username"):
     """Memeriksa status Misi Bayar QRIS untuk 1 akun."""
     previous = await client.get_messages(TARGET_BOT, limit=1)
     start_id = previous[0].id if previous else 0
@@ -402,22 +476,34 @@ async def check_one_mission(client, username: str):
     start_id = message.id
     await asyncio.sleep(STEP_DELAY)
 
-    # 2. Klik pilihan Username / Email / ID
-    login_opt = await wait_for_button(
-        client,
-        start_id - 1,
-        lambda label: any(term in label for term in ("username", "email", "user id", "id akun"))
-        and "cookie" not in label,
-        BUTTON_TIMEOUT,
-    )
+    # 2. Klik pilihan login (Raw Cookie atau Username/Email/ID)
+    effective_method = detect_auth_method(username) if auth_method == "auto" else auth_method
+    if effective_method == "cookie":
+        login_opt = await wait_for_button(
+            client,
+            start_id - 1,
+            lambda label: "raw cookie" in label or "cookie" in label,
+            BUTTON_TIMEOUT,
+        )
+        btn_err_msg = "Tombol Raw Cookie tidak ditemukan"
+    else:
+        login_opt = await wait_for_button(
+            client,
+            start_id - 1,
+            lambda label: any(term in label for term in ("username", "email", "user id", "id akun"))
+            and "cookie" not in label,
+            BUTTON_TIMEOUT,
+        )
+        btn_err_msg = "Tombol Username / Email / ID tidak ditemukan"
+
     if not login_opt:
-        return None, "GAGAL", "Tombol Username / Email / ID tidak ditemukan"
+        return None, "GAGAL", btn_err_msg
     message, row_idx, col_idx, _ = login_opt
     await message.click(row_idx, col_idx)
     await asyncio.sleep(STEP_DELAY)
 
-    # 3. Kirim username
-    sent_msg = await client.send_message(TARGET_BOT, username)
+    # 3. Kirim username / cookie
+    sent_msg = await client.send_message(TARGET_BOT, username.strip())
     last_seen = {}
     deadline = asyncio.get_running_loop().time() + RESULT_TIMEOUT
     while asyncio.get_running_loop().time() < deadline:
@@ -479,7 +565,7 @@ def validate_voucher_html(file_path: Path):
         return False, False
 
 
-async def check_one_food(client, username: str):
+async def check_one_food(client, username: str, auth_method: str = "username"):
     """Memeriksa status voucher Shopee Food untuk 1 akun."""
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
     previous = await client.get_messages(TARGET_BOT, limit=1)
@@ -504,25 +590,39 @@ async def check_one_food(client, username: str):
     start_id = message.id
     await asyncio.sleep(STEP_DELAY)
 
-    # 3. Klik tombol Email/Username/ID
-    btn_login = await wait_for_button(
-        client,
-        start_id - 1,
-        lambda label: any(term in label for term in ("username", "email", "id")) and "cookie" not in label,
-        BUTTON_TIMEOUT,
-    )
+    # 3. Klik tombol pilihan login (Raw Cookie atau Username/Email/ID)
+    effective_method = detect_auth_method(username) if auth_method == "auto" else auth_method
+    if effective_method == "cookie":
+        btn_login = await wait_for_button(
+            client,
+            start_id - 1,
+            lambda label: "raw cookie" in label or "cookie" in label,
+            BUTTON_TIMEOUT,
+        )
+        login_err_msg = "Tombol Raw Cookie tidak ditemukan"
+    else:
+        btn_login = await wait_for_button(
+            client,
+            start_id - 1,
+            lambda label: any(term in label for term in ("username", "email", "id")) and "cookie" not in label,
+            BUTTON_TIMEOUT,
+        )
+        login_err_msg = "Tombol Username/Email/ID tidak ditemukan"
+
     if not btn_login:
-        return False, "GAGAL", "Tombol Username/Email/ID tidak ditemukan", False, False
+        return False, "GAGAL", login_err_msg, False, False
     message, row_idx, col_idx, _ = btn_login
     await message.click(row_idx, col_idx)
     await asyncio.sleep(STEP_DELAY)
 
     # 4. Kirim data akun
-    sent_msg = await client.send_message(TARGET_BOT, username)
+    sent_msg = await client.send_message(TARGET_BOT, username.strip())
 
     # 5. Tunggu balasan dokumen HTML atau teks bot
     deadline = asyncio.get_running_loop().time() + RESULT_TIMEOUT
-    html_path = DOWNLOAD_DIR / f"{username}.html"
+    account_hash = hashlib.md5(username.encode("utf-8")).hexdigest()[:10]
+    safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", username)[:20] or "user"
+    html_path = DOWNLOAD_DIR / f"food_{safe_name}_{account_hash}.html"
     file_received = False
 
     while asyncio.get_running_loop().time() < deadline:

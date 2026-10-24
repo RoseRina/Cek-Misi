@@ -23,6 +23,8 @@ usernames.txt
 downloads/
 *.html
 shopee_web_package.zip
+web_dashboard/
+web_temp/
 
 # Python Cache & Virtual Environments
 __pycache__/

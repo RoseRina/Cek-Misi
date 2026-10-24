@@ -64,7 +64,7 @@ def print_banner():
     print(banner)
 
 
-def pilih_daftar_akun_bulk():
+def pilih_daftar_akun_bulk(auth_method: str = "auto"):
     """Menampilkan pilihan file teks di folder atau paste langsung untuk mode bulk."""
     txt_files = shopee_core.get_available_txt_files()
 
@@ -75,30 +75,33 @@ def pilih_daftar_akun_bulk():
     if txt_files:
         print("  Ditemukan file teks di folder ini:")
         for path_obj, count in txt_files:
-            print(f"  [{menu_idx}] 📄 {BOLD}{path_obj.name}{RESET} ({count} akun)")
+            print(f"  [{menu_idx}] 📄 {BOLD}{path_obj.name}{RESET} ({count} baris)")
             file_map[str(menu_idx)] = path_obj
             menu_idx += 1
         print(f"  [{menu_idx}] 📁 Ketik nama/path file lain")
         other_choice = str(menu_idx)
         menu_idx += 1
-        print(f"  [{menu_idx}] ✍️  Paste langsung banyak akun sekaligus")
+        print(f"  [{menu_idx}] ✍️  Paste langsung banyak akun/cookie sekaligus")
         paste_choice = str(menu_idx)
     else:
         print(f"  [1] 📁 Masukkan nama/path file teks")
-        print(f"  [2] ✍️  Paste langsung banyak akun sekaligus")
+        print(f"  [2] ✍️  Paste langsung banyak akun/cookie sekaligus")
         other_choice = "1"
         paste_choice = "2"
 
     pilihan = input(f"\n{WHITE}Pilih sumber [1-{menu_idx}]: {RESET}").strip()
 
     if pilihan in file_map:
-        return shopee_core.read_usernames(file_map[pilihan])
+        return shopee_core.read_usernames(file_map[pilihan], auth_method=auth_method)
     elif pilihan == other_choice:
         fname = input("Masukkan path / nama file: ").strip()
-        return shopee_core.read_usernames(fname)
+        return shopee_core.read_usernames(fname, auth_method=auth_method)
     elif pilihan == paste_choice:
-        print("\nSilakan tempel (paste) daftar akun Anda di bawah ini.")
-        print("(Bisa satu per baris, atau dipisah koma/spasi).")
+        print("\nSilakan tempel (paste) daftar akun atau raw cookie Anda di bawah ini.")
+        if auth_method == "cookie":
+            print("(1 Raw Cookie per baris)")
+        else:
+            print("(Bisa satu per baris, atau dipisah koma/spasi untuk username).")
         print("Tekan Enter dua kali (pada baris kosong) untuk selesai:")
         lines = []
         while True:
@@ -110,27 +113,28 @@ def pilih_daftar_akun_bulk():
                 break
             if line.strip():
                 lines.append(line)
-        return shopee_core.parse_raw_usernames("\n".join(lines))
+        return shopee_core.parse_raw_accounts("\n".join(lines), auth_method=auth_method)
     else:
         print("⚠️ Pilihan tidak valid, mencoba membaca file default...")
         if Path("daftar_username.txt").is_file():
-            return shopee_core.read_usernames("daftar_username.txt")
+            return shopee_core.read_usernames("daftar_username.txt", auth_method=auth_method)
         elif Path("food.txt").is_file():
-            return shopee_core.read_usernames("food.txt")
-        return shopee_core.read_usernames()
+            return shopee_core.read_usernames("food.txt", auth_method=auth_method)
+        return shopee_core.read_usernames(auth_method=auth_method)
 
 
-async def run_misi_mode(client, usernames, step_delay=2.5):
+async def run_misi_mode(client, usernames, auth_method="username", step_delay=2.5):
     total = len(usernames)
-    print(f"\n{YELLOW}{BOLD}▶ Memulai Pengecekan Misi Bayar QRIS ({total} akun)...{RESET}\n")
+    print(f"\n{YELLOW}{BOLD}▶ Memulai Pengecekan Misi Bayar QRIS ({total} akun/cookie, Metode: {auth_method.upper()})...{RESET}\n")
     success_count = 0
     fail_count = 0
 
     for idx, user in enumerate(usernames, 1):
         bar = shopee_core.render_progress_bar(idx, total)
-        print(f"{CYAN}{bar}{RESET} {BOLD}{user}{RESET}")
+        display = shopee_core.format_account_display(user, auth_method)
+        print(f"{CYAN}{bar}{RESET} {BOLD}{display}{RESET}")
         try:
-            coins, status, detail = await shopee_core.check_one_mission(client, user)
+            coins, status, detail = await shopee_core.check_one_mission(client, user, auth_method=auth_method)
             shopee_core.save_mission_result(user, coins, status, detail)
 
             if coins is not None:
@@ -160,18 +164,19 @@ async def run_misi_mode(client, usernames, step_delay=2.5):
     print(f"📂 Rincian CSV tersimpan di: {shopee_core.RESULTS_MISI_FILE.resolve()}\n")
 
 
-async def run_food_mode(client, usernames, step_delay=2.5):
+async def run_food_mode(client, usernames, auth_method="username", step_delay=2.5):
     total = len(usernames)
-    print(f"\n{YELLOW}{BOLD}▶ Memulai Pengecekan Voucher Shopee Food ({total} akun)...{RESET}\n")
+    print(f"\n{YELLOW}{BOLD}▶ Memulai Pengecekan Voucher Shopee Food ({total} akun/cookie, Metode: {auth_method.upper()})...{RESET}\n")
     valid_count = 0
     invalid_count = 0
     valid_list = []
 
     for idx, user in enumerate(usernames, 1):
         bar = shopee_core.render_progress_bar(idx, total)
-        print(f"{CYAN}{bar}{RESET} {BOLD}{user}{RESET}")
+        display = shopee_core.format_account_display(user, auth_method)
+        print(f"{CYAN}{bar}{RESET} {BOLD}{display}{RESET}")
         try:
-            is_valid, status, detail, has_25k, has_12k = await shopee_core.check_one_food(client, user)
+            is_valid, status, detail, has_25k, has_12k = await shopee_core.check_one_food(client, user, auth_method=auth_method)
             shopee_core.save_food_result(user, is_valid, status, detail, has_25k, has_12k)
 
             if is_valid:
@@ -204,22 +209,24 @@ async def run_food_mode(client, usernames, step_delay=2.5):
     if valid_list:
         print(f"\n{GREEN}{BOLD}★ DAFTAR AKUN MEMENUHI SYARAT (25RB + 12RB):{RESET}")
         for u in valid_list:
-            print(f"  • {u}")
+            display_u = shopee_core.format_account_display(u, auth_method)
+            print(f"  • {display_u}")
     print(f"\n📂 Akun valid disimpan di : {shopee_core.VALID_FOOD_FILE.resolve()}")
     print(f"📂 Rincian CSV tersimpan di: {shopee_core.RESULTS_FOOD_FILE.resolve()}\n")
 
 
-async def run_both_mode(client, usernames, step_delay=2.5):
+async def run_both_mode(client, usernames, auth_method="username", step_delay=2.5):
     total = len(usernames)
-    print(f"\n{YELLOW}{BOLD}▶ Memulai Pengecekan Keduanya (Misi QRIS + Voucher Food) ({total} akun)...{RESET}\n")
+    print(f"\n{YELLOW}{BOLD}▶ Memulai Pengecekan Keduanya (Misi QRIS + Voucher Food) ({total} akun/cookie, Metode: {auth_method.upper()})...{RESET}\n")
 
     for idx, user in enumerate(usernames, 1):
         bar = shopee_core.render_progress_bar(idx, total)
-        print(f"{CYAN}{bar}{RESET} {BOLD}{user}{RESET}")
+        display = shopee_core.format_account_display(user, auth_method)
+        print(f"{CYAN}{bar}{RESET} {BOLD}{display}{RESET}")
         try:
             # 1. Cek Misi QRIS
             print(f"  [1/2] Memeriksa Misi QRIS...")
-            coins, m_status, m_detail = await shopee_core.check_one_mission(client, user)
+            coins, m_status, m_detail = await shopee_core.check_one_mission(client, user, auth_method=auth_method)
             shopee_core.save_mission_result(user, coins, m_status, m_detail)
             if coins is not None:
                 color = GREEN if m_status == "SELESAI" else YELLOW
@@ -231,7 +238,7 @@ async def run_both_mode(client, usernames, step_delay=2.5):
 
             # 2. Cek Voucher Food
             print(f"  [2/2] Memeriksa Voucher Shopee Food...")
-            is_valid, f_status, f_detail, has_25k, has_12k = await shopee_core.check_one_food(client, user)
+            is_valid, f_status, f_detail, has_25k, has_12k = await shopee_core.check_one_food(client, user, auth_method=auth_method)
             shopee_core.save_food_result(user, is_valid, f_status, f_detail, has_25k, has_12k)
             if is_valid:
                 print(f"        └─ {GREEN}✅ {f_status} ({f_detail}){RESET}\n")
@@ -254,10 +261,26 @@ async def run_both_mode(client, usernames, step_delay=2.5):
     print(f"📂 Hasil lengkap gabungan tersimpan di: {shopee_core.RESULTS_ALL_FILE.resolve()}\n")
 
 
+def pilih_metode_auth():
+    """Meminta pengguna memilih metode login ke bot Shopee."""
+    print(f"\n{CYAN}{BOLD}🔑 PILIH METODE LOGIN BOT (@shp_tools_bot):{RESET}")
+    print(f"  [1] 📧 {BOLD}Username / Email / ID{RESET} (Standar)")
+    print(f"  [2] 🍪 {BOLD}Raw Cookie{RESET} (SPC_EC / SPC_U)")
+    print(f"  [3] 🔄 {BOLD}Otomatis / Auto-Detect{RESET}")
+    opt = input(f"{WHITE}Pilih metode login [1/2/3, default 1]: {RESET}").strip()
+    if opt == "2":
+        return "cookie"
+    elif opt == "3":
+        return "auto"
+    return "username"
+
+
 async def main():
     parser = argparse.ArgumentParser(description="Shopee Tools Bot All-in-One (Termux & PC)")
-    parser.add_argument("file", nargs="?", default=None, help="File berisi daftar username Shopee")
+    parser.add_argument("file", nargs="?", default=None, help="File berisi daftar username atau raw cookie Shopee")
     parser.add_argument("--mode", choices=["misi", "food", "both"], help="Pilih mode: misi | food | both")
+    parser.add_argument("--method", choices=["username", "cookie", "auto"], default=None, help="Metode login bot: username | cookie | auto")
+    parser.add_argument("--cookie", action="store_true", help="Gunakan mode Raw Cookie langsung")
     parser.add_argument("--single", help="Cek 1 akun secara langsung tanpa menu")
     parser.add_argument("--bulk", action="store_true", help="Jalankan dalam mode massal / bulk")
     parser.add_argument("--resume", action="store_true", help="Lewati akun yang sudah pernah dicek di CSV")
@@ -269,19 +292,29 @@ async def main():
         shopee_core.reset_credentials()
         return
 
+    # Tentukan metode login awal
+    if args.cookie:
+        auth_method = "cookie"
+    elif args.method:
+        auth_method = args.method
+    else:
+        auth_method = None
+
     # Handle Mode Satuan Cepat dari Argumen CLI
     if args.single:
         mode = args.mode or "misi"
-        usernames = [args.single.strip()]
+        single_acc = args.single.strip()
+        usernames = [single_acc]
+        eff_method = auth_method or shopee_core.detect_auth_method(single_acc)
         client = shopee_core.create_client()
         try:
             await shopee_core.start_client(client)
             if mode == "misi":
-                await run_misi_mode(client, usernames, args.delay)
+                await run_misi_mode(client, usernames, auth_method=eff_method, step_delay=args.delay)
             elif mode == "food":
-                await run_food_mode(client, usernames, args.delay)
+                await run_food_mode(client, usernames, auth_method=eff_method, step_delay=args.delay)
             elif mode == "both":
-                await run_both_mode(client, usernames, args.delay)
+                await run_both_mode(client, usernames, auth_method=eff_method, step_delay=args.delay)
         finally:
             await client.disconnect()
         return
@@ -294,7 +327,8 @@ async def main():
 
     # Jika file diberikan di command line, otomatis dianggap mode bulk
     if args.file:
-        usernames = shopee_core.read_usernames(args.file)
+        eff_method = auth_method or "auto"
+        usernames = shopee_core.read_usernames(args.file, auth_method=eff_method)
         is_bulk = True
 
     # Jika mode belum dipilih, tampilkan menu utama interaktif
@@ -336,24 +370,29 @@ async def main():
             else:
                 print("❌ Pilihan tidak valid, silakan ketik angka 1 sampai 5, atau 0.")
 
+    # Jika metode login belum dipilih dari argumen CLI
+    if not auth_method:
+        auth_method = pilih_metode_auth()
+
     # Jika usernames belum diisi dari argumen file
     if not usernames:
         if not is_bulk:
             print(f"\n{CYAN}{BOLD}--- TIPE EKSEKUSI ---{RESET}")
-            print(" [1] ⚡ Mode Satuan (Cek 1 Akun Cepat)")
+            print(" [1] ⚡ Mode Satuan (Cek 1 Akun/Cookie Cepat)")
             print(" [2] 📦 Mode Massal / Bulk (Banyak Akun dari File / Paste)")
             tipe = input(f"{WHITE}Pilih tipe [1/2] (Default 2): {RESET}").strip()
             if tipe == "1":
-                acc = input("\nMasukkan 1 username Shopee: ").strip()
+                prompt_label = "raw cookie" if auth_method == "cookie" else "username"
+                acc = input(f"\nMasukkan 1 {prompt_label} Shopee: ").strip()
                 if not acc:
-                    print("❌ Username tidak boleh kosong.")
+                    print("❌ Input tidak boleh kosong.")
                     return
                 usernames = [acc]
             else:
                 is_bulk = True
-                usernames = pilih_daftar_akun_bulk()
+                usernames = pilih_daftar_akun_bulk(auth_method=auth_method)
         else:
-            usernames = pilih_daftar_akun_bulk()
+            usernames = pilih_daftar_akun_bulk(auth_method=auth_method)
 
     # Opsi Auto-Resume (Lewati akun yang sudah pernah dicek) jika dalam mode bulk
     if is_bulk and len(usernames) > 1 and not auto_resume:
@@ -371,7 +410,7 @@ async def main():
                 print(f"{GREEN}🎉 Semua akun dalam daftar sudah selesai dicek sebelumnya! Tidak ada antrean.{RESET}")
                 return
 
-    print(f"\n{GREEN}✅ Total akun yang akan diproses: {len(usernames)} akun.{RESET}")
+    print(f"\n{GREEN}✅ Total akun/cookie yang akan diproses: {len(usernames)} akun (Metode: {auth_method.upper()}).{RESET}")
 
     # Buat client dan koneksi Telegram
     client = shopee_core.create_client()
@@ -380,11 +419,11 @@ async def main():
         print(f"{GREEN}✅ Terhubung ke Telegram! Memulai antrean...{RESET}")
 
         if selected_mode == "misi":
-            await run_misi_mode(client, usernames, delay)
+            await run_misi_mode(client, usernames, auth_method=auth_method, step_delay=delay)
         elif selected_mode == "food":
-            await run_food_mode(client, usernames, delay)
+            await run_food_mode(client, usernames, auth_method=auth_method, step_delay=delay)
         elif selected_mode == "both":
-            await run_both_mode(client, usernames, delay)
+            await run_both_mode(client, usernames, auth_method=auth_method, step_delay=delay)
     finally:
         await client.disconnect()
 
