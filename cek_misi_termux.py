@@ -63,6 +63,7 @@ def print_banner():
  {WHITE}5.{RESET} 👥 {BOLD}Kelola Multi-Worker{RESET}     (Multi-Login Akun Telegram)
  {WHITE}6.{RESET} ⚙️  {BOLD}Reset Pengaturan{RESET}        (Hapus Sesi & API Telegram)
  {WHITE}7.{RESET} 🎟️ {BOLD}Klaim Voucher ShopeeFood{RESET} (Auto-Claim Voucher ke Bot)
+ {WHITE}8.{RESET} 🔑 {BOLD}Cek Ganti Nomor{RESET}          (Checker, Tanpa Mengubah Nomor)
  {WHITE}0.{RESET} 🚪 {BOLD}Keluar{RESET}
 {CYAN}======================================================================{RESET}
 """
@@ -233,6 +234,69 @@ async def run_both_mode(client, usernames, auth_method="username", step_delay=2.
 
     print(f"{CYAN}{BOLD}==================== PENGECEKAN GABUNGAN SELESAI ===================={RESET}")
     print(f"📂 Hasil lengkap tersimpan di: {shopee_core.RESULTS_ALL_FILE.name} (CSV) & {shopee_core.RESULTS_ALL_TXT.name} (TXT)\n")
+
+
+async def run_change_number_mode(client, usernames, auth_method="username", step_delay=2.5):
+    """Menjalankan antrean pengecekan status kelayakan ganti nomor (Checker Only).
+    
+    PRINSIP KEAMANAN:
+    - Hanya bertindak sebagai checker (bukan untuk benar-benar mengganti nomor).
+    - Selalu membatalkan (klik tombol Batal) setelah status verifikasi terdeteksi.
+    - Tidak pernah mengirimkan OTP, password, atau PIN ke bot Telegram.
+    - Masking format_account_display aktif untuk semua tampilan terminal dan file hasil.
+    """
+    total = len(usernames)
+    print(f"\n{YELLOW}{BOLD}▶ Memulai Pengecekan Ganti Nomor (Checker Only) ({total} akun/cookie, Metode: {auth_method.upper()})...{RESET}")
+    print(f"  {DIM}ℹ️  Mode aman: Hanya mengecek syarat verifikasi, selalu dibatalkan & nomor TIDAK diubah.{RESET}\n")
+    processed_count = 0
+    success_count = 0
+    fail_count = 0
+    error_count = 0
+    success_list = []
+
+    for idx, user in enumerate(usernames, 1):
+        bar = shopee_core.render_progress_bar(idx, total)
+        display = shopee_core.format_account_display(user, auth_method)
+        print(f"{CYAN}{bar}{RESET} {BOLD}{display}{RESET}")
+        try:
+            is_eligible, status, detail = await shopee_core.check_one_change_number(client, user, auth_method=auth_method)
+            shopee_core.save_ganti_nomor_result(user, status, detail, auth_method=auth_method)
+            processed_count += 1
+
+            if status == "SUKSES":
+                print(f"  └─ {GREEN}{BOLD}✅ {status} ({detail}){RESET}\n")
+                success_count += 1
+                success_list.append(display)
+            elif status == "GAGAL":
+                print(f"  └─ {YELLOW}⚠️ {status} ({detail}){RESET}\n")
+                fail_count += 1
+            else:
+                print(f"  └─ {RED}❌ {status} ({detail}){RESET}\n")
+                error_count += 1
+        except FloodWaitError as exc:
+            msg = f"Telegram meminta jeda {exc.seconds} detik. Antrean dihentikan."
+            shopee_core.save_ganti_nomor_result(user, "FLOOD_WAIT", msg, auth_method=auth_method)
+            processed_count += 1
+            error_count += 1
+            print(f"  └─ {RED}⚠️ FloodWait {exc.seconds}s. Antrean dihentikan.{RESET}\n")
+            break
+        except Exception as exc:
+            shopee_core.save_ganti_nomor_result(user, "ERROR", str(exc), auth_method=auth_method)
+            print(f"  └─ {RED}Error: {exc}{RESET}\n")
+            processed_count += 1
+            error_count += 1
+
+        if idx < total:
+            await asyncio.sleep(step_delay)
+
+    shopee_core.print_change_number_summary_report(
+        total_processed=processed_count,
+        success_count=success_count,
+        fail_count=fail_count,
+        error_count=error_count,
+        success_accounts=success_list,
+        show_csv_path=True,
+    )
 
 
 async def run_worker_pool_mode(clients, usernames, mode="misi", auth_method="auto", step_delay=2.5):
@@ -448,7 +512,7 @@ def pilih_metode_auth():
 async def main():
     parser = argparse.ArgumentParser(description="Shopee Tools Bot All-in-One (Termux & PC)")
     parser.add_argument("file", nargs="?", default=None, help="File berisi daftar username atau raw cookie Shopee")
-    parser.add_argument("--mode", choices=["misi", "food", "both", "claim"], help="Pilih mode: misi | food | both | claim")
+    parser.add_argument("--mode", choices=["misi", "food", "both", "claim", "ganti_nomor"], help="Pilih mode: misi | food | both | claim | ganti_nomor")
     parser.add_argument("--voucher-link", help="Tautan voucher 1 (diskon) untuk klaim (mode claim)")
     parser.add_argument("--voucher-link-2", help="Tautan voucher 2 (ongkir gratis) untuk klaim (mode claim)")
     parser.add_argument("--method", choices=["username", "cookie", "auto"], default=None, help="Metode login bot: username | cookie | auto")
@@ -487,6 +551,8 @@ async def main():
                 await run_food_mode(client, usernames, auth_method=eff_method, step_delay=args.delay)
             elif mode == "both":
                 await run_both_mode(client, usernames, auth_method=eff_method, step_delay=args.delay)
+            elif mode == "ganti_nomor":
+                await run_change_number_mode(client, usernames, auth_method=eff_method, step_delay=args.delay)
             elif mode == "claim":
                 v_links = None
                 if getattr(args, "voucher_link", None):
@@ -519,7 +585,7 @@ async def main():
     if not selected_mode:
         while True:
             print_banner()
-            choice = input(f"{WHITE}Pilih menu [1/2/3/4/5/6/7/0]: {RESET}").strip()
+            choice = input(f"{WHITE}Pilih menu [1/2/3/4/5/6/7/8/0]: {RESET}").strip()
             if choice == "1":
                 selected_mode = "misi"
                 break
@@ -557,11 +623,14 @@ async def main():
             elif choice in ("7", "claim", "klaim"):
                 await voucher_claim.interactive_voucher_claim_menu()
                 return
+            elif choice in ("8", "ganti_nomor", "gn"):
+                selected_mode = "ganti_nomor"
+                break
             elif choice in ("0", "q", "exit"):
                 print("Sampai jumpa!")
                 return
             else:
-                print("❌ Pilihan tidak valid, silakan ketik angka 1 sampai 7, atau 0.")
+                print("❌ Pilihan tidak valid, silakan ketik angka 1 sampai 8, atau 0.")
 
     # Jika mode claim, metode login spesifik bot check-in (cookie/username) tidak diperlukan
     if selected_mode == "claim":
@@ -657,6 +726,8 @@ async def main():
                 await run_food_mode(client, usernames, auth_method=auth_method, step_delay=delay)
             elif selected_mode == "both":
                 await run_both_mode(client, usernames, auth_method=auth_method, step_delay=delay)
+            elif selected_mode == "ganti_nomor":
+                await run_change_number_mode(client, usernames, auth_method=auth_method, step_delay=delay)
             elif selected_mode == "claim":
                 v_links = None
                 if getattr(args, "voucher_link", None):

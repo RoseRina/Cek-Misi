@@ -32,13 +32,17 @@ CONFIG_FILE = Path("telegram_config.json")
 RESULTS_MISI_FILE = Path("hasil_cek_misi.csv")
 RESULTS_FOOD_FILE = Path("hasil_voucher_food.csv")
 RESULTS_ALL_FILE = Path("hasil_gabungan.csv")
+RESULTS_GANTI_NOMOR_FILE = Path("hasil_ganti_nomor.csv")
 VALID_FOOD_FILE = Path("valid_food.txt")
 RESULTS_MISI_TXT = Path("hasil_cek_misi.txt")
 RESULTS_FOOD_TXT = Path("hasil_voucher_food.txt")
 RESULTS_ALL_TXT = Path("hasil_gabungan.txt")
+RESULTS_GANTI_NOMOR_TXT = Path("hasil_ganti_nomor.txt")
+REEDEM_GANTI_NOMOR_TXT = Path("reedem_gantinomor.txt")
 DISKON_25K_TXT = Path("diskon_25rb.txt")
 MISI_SELESAI_TXT = Path("misi_selesai.txt")
 DOWNLOAD_DIR = Path("downloads")
+LAST_DETECTED_CHANGE_NUMBER_LABEL: Optional[str] = None
 
 STEP_DELAY = 2.5
 POLL_INTERVAL = 0.5
@@ -362,6 +366,8 @@ def get_checked_usernames(mode: str = "misi"):
         target_csv = RESULTS_FOOD_FILE
     elif mode == "both":
         target_csv = RESULTS_ALL_FILE
+    elif mode == "ganti_nomor":
+        target_csv = RESULTS_GANTI_NOMOR_FILE
 
     if target_csv and target_csv.is_file():
         try:
@@ -382,6 +388,9 @@ def get_checked_usernames(mode: str = "misi"):
                             st_misi = row[3].strip().upper() if len(row) > 3 else ""
                             st_food = row[4].strip().upper() if len(row) > 4 else ""
                             st = f"{st_misi} | {st_food}"
+                        elif mode == "ganti_nomor":
+                            # Kolom CSV Ganti Nomor: [Tanggal & Waktu, Akun, Status, Keterangan]
+                            st = row[2].strip().upper() if len(row) > 2 else ""
                         else:  # "misi"
                             # Kolom CSV Misi: [Tanggal & Waktu, Username, Koin, Status, Keterangan]
                             st = row[3].strip().upper() if len(row) > 3 else ""
@@ -1684,3 +1693,376 @@ def save_combined_result(username: str, qris_coins, qris_status: str, food_statu
             f_txt.write(f"[{now_str}] {username} | QRIS: {q_str} ({qris_status}) | Food: {food_status} ({food_detail or '-'})\n")
     except Exception:
         pass
+
+
+# =====================================================================
+# 4. FITUR CEK GANTI NOMOR (CHECKER ONLY, TANPA MENGUBAH NOMOR)
+# =====================================================================
+
+async def wait_for_bot_prompt(client, after_id: int, phrases: List[str], timeout: float = BUTTON_TIMEOUT):
+    """Menunggu pesan bot yang meminta input identitas akun."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        messages = await client.get_messages(TARGET_BOT, limit=10)
+        candidates = sorted(
+            (msg for msg in messages if msg.id > after_id and not msg.out),
+            key=lambda msg: msg.id,
+        )
+        for msg in candidates:
+            content = " ".join((getattr(msg, "text", "") or getattr(msg, "raw_text", "") or "").casefold().split())
+            if any(phrase in content for phrase in phrases):
+                return msg
+        await asyncio.sleep(POLL_INTERVAL)
+    return None
+
+
+async def click_cancel_button(client, msg=None, after_id=None):
+    """Mencari dan mengklik tombol 'Batal' setelah klasifikasi selesai.
+    
+    PRINSIP KEAMANAN:
+    - Checker ini TIDAK PERNAH melanjutkan proses perubahan nomor akun.
+    - Selalu klik tombol Batal setelah klasifikasi ditemukan.
+    - Jangan pernah mengirim kode OTP, password, atau PIN ke bot dalam kondisi apapun.
+    """
+    # 1. Cek tombol pada pesan target jika ada
+    if msg and getattr(msg, "buttons", None):
+        for r_idx, row in enumerate(msg.buttons):
+            for c_idx, btn in enumerate(row):
+                btn_txt = (getattr(btn, "text", "") or "").casefold()
+                if "batal" in btn_txt or "cancel" in btn_txt:
+                    try:
+                        if hasattr(btn, "click") and callable(btn.click):
+                            res = btn.click()
+                            if asyncio.iscoroutine(res):
+                                await res
+                        elif hasattr(msg, "click") and callable(msg.click):
+                            res = msg.click(r_idx, c_idx)
+                            if asyncio.iscoroutine(res):
+                                await res
+                        return True
+                    except Exception:
+                        pass
+
+    # 2. Cari di pesan bot terkini jika belum terklik pada msg
+    try:
+        messages = await client.get_messages(TARGET_BOT, limit=6)
+        candidates = sorted(
+            (m for m in messages if not m.out and (after_id is None or m.id >= (after_id or 0))),
+            key=lambda x: x.id,
+            reverse=True,
+        )
+        for m in candidates:
+            if not getattr(m, "buttons", None):
+                continue
+            for r_idx, row in enumerate(m.buttons):
+                for c_idx, btn in enumerate(row):
+                    btn_txt = (getattr(btn, "text", "") or "").casefold()
+                    if "batal" in btn_txt or "cancel" in btn_txt:
+                        try:
+                            if hasattr(btn, "click") and callable(btn.click):
+                                res = btn.click()
+                                if asyncio.iscoroutine(res):
+                                    await res
+                            elif hasattr(m, "click") and callable(m.click):
+                                res = m.click(r_idx, c_idx)
+                                if asyncio.iscoroutine(res):
+                                    await res
+                            return True
+                        except Exception:
+                            pass
+    except Exception:
+        pass
+    return False
+
+
+async def check_one_change_number(client, username: str, auth_method: str = "username"):
+    """Memeriksa status kelayakan ganti nomor untuk 1 akun.
+    
+    PRINSIP KEAMANAN:
+    - Checker ini TIDAK PERNAH mengganti nomor akun.
+    - Selalu klik tombol Batal setelah klasifikasi ditemukan.
+    - Jangan pernah mengirim kode OTP, password, atau PIN ke bot dalam kondisi apapun.
+    """
+    global LAST_DETECTED_CHANGE_NUMBER_LABEL
+    clean_user = (username or "").strip()
+    if not clean_user:
+        return False, "GAGAL", "Identitas akun kosong"
+
+    previous = await client.get_messages(TARGET_BOT, limit=1)
+    start_id = previous[0].id if previous else 0
+
+    # 1. Kirim /account
+    command = await client.send_message(TARGET_BOT, "/account")
+    start_id = max(start_id, command.id)
+    await asyncio.sleep(STEP_DELAY)
+
+    # 2. Klik tombol "Ganti Nomor" (fallback "Ubah Nomor")
+    btn_gn = await wait_for_button(
+        client,
+        start_id,
+        lambda label: "ganti nomor" in label or "ubah nomor" in label,
+        BUTTON_TIMEOUT,
+    )
+    if not btn_gn:
+        return False, "GAGAL", "Tombol Ganti Nomor tidak ditemukan"
+    message, row_idx, col_idx, matched_label = btn_gn
+    LAST_DETECTED_CHANGE_NUMBER_LABEL = matched_label
+    if hasattr(message, "click") and callable(message.click):
+        res = message.click(row_idx, col_idx)
+        if asyncio.iscoroutine(res):
+            await res
+    start_id = message.id
+    await asyncio.sleep(STEP_DELAY)
+
+    # 3. Klik tombol pilihan metode login sesuai akun
+    effective_method = detect_auth_method(clean_user) if auth_method == "auto" else auth_method
+    if effective_method == "cookie":
+        btn_login = await wait_for_button(
+            client,
+            start_id - 1,
+            lambda label: "raw cookie" in label or "cookie" in label,
+            BUTTON_TIMEOUT,
+        )
+        login_err_msg = "Tombol Raw Cookie tidak ditemukan"
+    else:
+        btn_login = await wait_for_button(
+            client,
+            start_id - 1,
+            lambda label: any(term in label for term in ("username", "email", "user id", "id akun")) and "cookie" not in label,
+            BUTTON_TIMEOUT,
+        )
+        login_err_msg = "Tombol Username / Email / ID tidak ditemukan"
+
+    if not btn_login:
+        return False, "GAGAL", login_err_msg
+    message, row_idx, col_idx, _ = btn_login
+    if hasattr(message, "click") and callable(message.click):
+        res = message.click(row_idx, col_idx)
+        if asyncio.iscoroutine(res):
+            await res
+    start_id = message.id
+    await asyncio.sleep(STEP_DELAY)
+
+    # 4. Tunggu prompt bot
+    prompt_phrases = [
+        "masukkan email",
+        "kirim email",
+        "masukkan username",
+        "kirim username",
+        "masukkan id",
+        "kirim id",
+        "email / username / id",
+        "email/username/id",
+    ]
+    if effective_method == "cookie":
+        prompt_phrases.extend(["masukkan cookie", "kirim cookie", "cookie"])
+
+    prompt_msg = await wait_for_bot_prompt(client, start_id, prompt_phrases, BUTTON_TIMEOUT)
+    if not prompt_msg:
+        return False, "GAGAL", "Prompt input identitas akun tidak muncul dari bot"
+    start_id = prompt_msg.id
+    await asyncio.sleep(STEP_DELAY)
+
+    # 5. Kirim identitas akun
+    sent_msg = await client.send_message(TARGET_BOT, clean_user)
+
+    # 6. Polling balasan bot
+    deadline = asyncio.get_running_loop().time() + RESULT_TIMEOUT
+    while asyncio.get_running_loop().time() < deadline:
+        messages = await client.get_messages(TARGET_BOT, limit=15)
+        replies = sorted(
+            (m for m in messages if m.id > sent_msg.id and not m.out),
+            key=lambda m: m.id,
+        )
+        for msg in replies:
+            text = (getattr(msg, "text", "") or getattr(msg, "raw_text", "") or "").strip()
+            if not text:
+                continue
+            lower_text = text.casefold()
+
+            # Deteksi error bot
+            err = detect_bot_error(text)
+            if err:
+                await click_cancel_button(client, msg, sent_msg.id)
+                return False, err, text
+
+            # Deteksi OTP
+            has_otp = (
+                "otp akan dikirim" in lower_text
+                or "verifikasi lewat otp" in lower_text
+                or bool(re.search(r"\botp\b", lower_text))
+            )
+            if has_otp:
+                await click_cancel_button(client, msg, sent_msg.id)
+                return False, "GAGAL", "Meminta OTP — dibatalkan, tidak dilanjutkan"
+
+            # Deteksi Pilih Metode / Verifikasi Identitas
+            if "pilih metode" in lower_text or "butuh verifikasi identitas" in lower_text:
+                has_password_or_pin = False
+                buttons = getattr(msg, "buttons", None) or []
+                for row in buttons:
+                    for btn in row:
+                        btn_txt = (getattr(btn, "text", "") or "").casefold()
+                        if "password" in btn_txt or "pin shopeepay" in btn_txt:
+                            has_password_or_pin = True
+                            break
+                    if has_password_or_pin:
+                        break
+
+                if has_password_or_pin:
+                    await click_cancel_button(client, msg, sent_msg.id)
+                    return True, "SUKSES", "Butuh Password/PIN — dibatalkan, tercatat layak"
+                else:
+                    await click_cancel_button(client, msg, sent_msg.id)
+                    return False, "GAGAL", "Metode verifikasi bukan Password/PIN — dibatalkan"
+
+        await asyncio.sleep(POLL_INTERVAL)
+
+    # Timeout
+    await click_cancel_button(client, after_id=sent_msg.id)
+    return False, "TIMEOUT", "Timeout menunggu balasan bot"
+
+
+def save_ganti_nomor_result(username: str, status: str, detail: str, auth_method: str = "auto"):
+    """Menyimpan hasil pengecekan kelayakan ganti nomor ke CSV, TXT, dan daftar akun layak.
+    
+    Kolom CSV: Tanggal & Waktu, Akun, Status, Keterangan.
+    Selalu menggunakan format_account_display() untuk akun cookie agar cookie utuh tidak bocor.
+    """
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    display_acc = format_account_display(username, auth_method)
+    file_exists = RESULTS_GANTI_NOMOR_FILE.exists() and RESULTS_GANTI_NOMOR_FILE.stat().st_size > 0
+    with RESULTS_GANTI_NOMOR_FILE.open("a", newline="", encoding="utf-8-sig") as stream:
+        writer = csv.writer(stream)
+        if not file_exists:
+            writer.writerow(["Tanggal & Waktu", "Akun", "Status", "Keterangan"])
+        writer.writerow([
+            now_str,
+            display_acc,
+            status,
+            detail or "-",
+        ])
+
+    try:
+        with RESULTS_GANTI_NOMOR_TXT.open("a", encoding="utf-8") as f_txt:
+            f_txt.write(f"[{now_str}] {display_acc} | Status: {status} | {detail or '-'}\n")
+
+        if status == "SUKSES":
+            _sync_account_in_file(REEDEM_GANTI_NOMOR_TXT, display_acc, should_contain=True)
+        elif status == "GAGAL":
+            _sync_account_in_file(REEDEM_GANTI_NOMOR_TXT, display_acc, should_contain=False)
+    except Exception:
+        pass
+
+
+def render_change_number_summary_box(
+    total_processed: Optional[int] = None,
+    success_count: int = 0,
+    fail_count: int = 0,
+    error_count: int = 0,
+    success_accounts: Optional[List[str]] = None,
+    box_width: Optional[int] = None,
+    show_csv_path: bool = False,
+) -> str:
+    """Menghasilkan teks ringkasan akhir berbingkai rapi untuk pengecekan ganti nomor."""
+    if success_accounts is None:
+        success_accounts = []
+
+    calculated_total = success_count + fail_count + error_count
+    if total_processed is None or total_processed < calculated_total:
+        total_processed = calculated_total
+
+    if box_width is None:
+        try:
+            term_cols = shutil.get_terminal_size((48, 20)).columns
+            if term_cols < 48:
+                box_width = max(40, term_cols)
+            elif term_cols <= 64:
+                box_width = min(term_cols - 2, 48)
+            else:
+                box_width = 48
+        except Exception:
+            box_width = 48
+
+    inner_width = max(36, box_width - 2)
+
+    clr_border = '\033[92m'
+    clr_title = '\033[1;93m'
+    clr_cyan = '\033[96m'
+    clr_green = '\033[92m'
+    clr_yellow = '\033[93m'
+    clr_red = '\033[91m'
+    clr_num = '\033[1;96m'
+    clr_subtitle = '\033[1;93m'
+    clr_reset = '\033[0m'
+
+    def _make_line(content: str) -> str:
+        vis = get_visible_width(content)
+        pad = max(0, inner_width - vis)
+        return f"{clr_border}│{clr_reset}{content}{' ' * pad}{clr_border}│{clr_reset}"
+
+    top = f"{clr_border}╭{'─' * inner_width}╮{clr_reset}"
+    bot = f"{clr_border}╰{'─' * inner_width}╯{clr_reset}"
+    empty_line = f"{clr_border}│{clr_reset}{' ' * inner_width}{clr_border}│{clr_reset}"
+
+    title = f"{clr_title}✨ LAPORAN CEK GANTI NOMOR ✨{clr_reset}"
+    t_vis = get_visible_width(title)
+    l_pad = max(0, (inner_width - t_vis) // 2)
+    r_pad = max(0, inner_width - t_vis - l_pad)
+    title_line = f"{clr_border}│{clr_reset}{' ' * l_pad}{title}{' ' * r_pad}{clr_border}│{clr_reset}"
+
+    lines = [top, title_line, empty_line]
+    lines.append(_make_line(f" 🎯 {clr_cyan}Total Diproses{clr_reset}     : {clr_num}{total_processed}{clr_reset}"))
+    lines.append(_make_line(f" ✅ {clr_green}Layak (Password/PIN){clr_reset}: {clr_num}{success_count}{clr_reset}"))
+    lines.append(_make_line(f" ⚠️ {clr_yellow}Tidak Layak (OTP){clr_reset}   : {clr_num}{fail_count}{clr_reset}"))
+
+    if error_count > 0:
+        lines.append(_make_line(f" ❌ {clr_red}Gagal / Error{clr_reset}      : {clr_num}{error_count}{clr_reset}"))
+
+    lines.append(empty_line)
+    lines.append(_make_line(f" {clr_subtitle}★ DAFTAR AKUN LAYAK (TERSAMAR) ★{clr_reset}"))
+
+    unique_success = list(dict.fromkeys(success_accounts))
+    if unique_success:
+        for acc in unique_success:
+            prefix = "       └ "
+            prefix_vis = get_visible_width(prefix)
+            max_vis = inner_width - prefix_vis
+            display_acc = acc
+            while get_visible_width(display_acc) > max_vis and len(display_acc) > 0:
+                display_acc = display_acc[:-1]
+            if len(display_acc) < len(acc):
+                display_acc = display_acc[:-3] + "..." if len(display_acc) >= 3 else "..."
+            lines.append(_make_line(f"{prefix}{display_acc}"))
+    else:
+        lines.append(_make_line("       └ (Tidak ada)"))
+
+    lines.append(bot)
+    lines.append("")
+    lines.append(f"📂 {clr_cyan}Daftar bersih akun layak di '{REEDEM_GANTI_NOMOR_TXT.name}'{clr_reset}")
+    if show_csv_path:
+        lines.append(f"📂 {clr_cyan}Rincian CSV tersimpan di '{RESULTS_GANTI_NOMOR_FILE.name}'{clr_reset}")
+        lines.append(f"📂 {clr_cyan}Riwayat TXT tersimpan di '{RESULTS_GANTI_NOMOR_TXT.name}'{clr_reset}")
+
+    return "\n".join(lines)
+
+
+def print_change_number_summary_report(
+    total_processed: int,
+    success_count: int,
+    fail_count: int,
+    error_count: int = 0,
+    success_accounts: Optional[List[str]] = None,
+    box_width: Optional[int] = None,
+    show_csv_path: bool = False,
+):
+    """Menampilkan ringkasan akhir pengecekan ganti nomor langsung ke stdout."""
+    print("\n" + render_change_number_summary_box(
+        total_processed=total_processed,
+        success_count=success_count,
+        fail_count=fail_count,
+        error_count=error_count,
+        success_accounts=success_accounts,
+        box_width=box_width,
+        show_csv_path=show_csv_path,
+    ) + "\n")

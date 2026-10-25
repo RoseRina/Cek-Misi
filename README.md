@@ -28,6 +28,7 @@ Tools otomatisasi terpadu berbasis **Python & Telethon** untuk HP Android (Termu
    - [Mode Satuan Cepat](#4--mode-satuan-cepat-cek-1-akun-langsung)
    - [Runner Khusus Voucher Food (food.py)](#5-runner-khusus-voucher-food-foodpy)
    - [Klaim Voucher ShopeeFood (voucher_claim.py)](#6-klaim-voucher-shopeefood-voucher_claimpy)
+   - [Cek Ganti Nomor (Checker Only)](#7--cek-ganti-nomor-checker-only-opsi-8)
 7. [📊 Penjelasan File Output & Hasil](#-penjelasan-file-output--hasil)
 8. [❓ Tanya Jawab & Solusi Error (Troubleshooting)](#-tanya-jawab--solusi-error-troubleshooting)
 9. [🔒 Keamanan & Privasi](#-keamanan--privasi)
@@ -256,6 +257,7 @@ Akan tampil menu interaktif:
  5. 👥 Kelola Multi-Worker     (Multi-Login Akun Telegram)
  6. ⚙️  Reset Pengaturan        (Hapus Sesi & API Telegram)
  7. 🎟️ Klaim Voucher ShopeeFood (Auto-Claim Voucher ke Bot)
+ 8. 🔑 Cek Ganti Nomor          (Checker, Tanpa Mengubah Nomor)
  0. 🚪 Keluar
 ======================================================================
 ```
@@ -392,6 +394,34 @@ python voucher_claim.py
 python cek_misi_termux.py accounts.txt --mode claim --voucher-link "https://shopee.co.id/voucher/..."
 ```
 
+---
+
+### 7. 🔑 Cek Ganti Nomor (Checker Only, Opsi 8)
+Fitur otomatisasi pengecekan status kelayakan ganti nomor akun Shopee di bot Telegram `@shp_tools_bot`.
+
+> ⚠️ **PENTING — PRINSIP KEAMANAN & PRIVASI:**  
+> - **HANYA CHECKER:** Fitur ini **TIDAK PERNAH** mengganti nomor telepon akun Anda.
+> - **SELALU DIBATALKAN:** Script selalu mengklik tombol **Batal** setelah klasifikasi metode verifikasi terdeteksi dari bot.
+> - **TANPA OTP / PIN / PASSWORD:** Script **TIDAK PERNAH** mengirimkan kode OTP, kata sandi, ataupun PIN ShopeePay ke bot Telegram dalam kondisi apapun.
+> - **SENSOR PRIVASI (MASKING):** Seluruh tampilan terminal dan pencatatan riwayat (CSV & TXT) menggunakan sensor privasi `format_account_display()`, sehingga cookie utuh **tidak pernah dibocorkan atau disimpan terbuka**.
+
+#### Alur Pengecekan:
+1. Meminta bot membuka menu `/account` dan memilih opsi **Ganti Nomor**.
+2. Memilih metode identifikasi akun (Username/Email/ID atau Raw Cookie) dan menunggu prompt input identitas dari bot.
+3. Mengirim identitas akun, lalu bot mengembalikan syarat verifikasi:
+   - **Meminta OTP:** Script langsung mengklik tombol **Batal**, menghentikan proses akun tersebut, dan mencatat status `GAGAL` (*"Meminta OTP — dibatalkan, tidak dilanjutkan"*).
+   - **Tersedia Password / PIN ShopeePay:** Script mengklik tombol **Batal**, mencatat status `SUKSES` (*"Butuh Password/PIN — dibatalkan, tercatat layak"*), dan otomatis menyimpan akun ke daftar bersih `reedem_gantinomor.txt` tanpa duplikat.
+   - **Metode Verifikasi Lainnya:** Script mengklik tombol **Batal** dan mencatat status `GAGAL`.
+
+#### Cara Menjalankan:
+```bash
+# Lewat Menu Utama interaktif (Pilih opsi [8]):
+python cek_misi_termux.py
+
+# Atau lewat mode CLI satuan langsung:
+python cek_misi_termux.py --single user_target --mode ganti_nomor
+```
+
 <details>
 <summary><b>💡 Fitur Hemat Waktu: Simpan Otomatis API ID & Hash</b></summary>
 <br>
@@ -412,6 +442,8 @@ Bot ini otomatis menyimpan hasil dalam **2 format sekaligus** (CSV untuk Excel &
 | **`hasil_gabungan.txt`** / `.csv` | TXT / CSV | Laporan lengkap **Misi QRIS + Voucher Food** (Cek Keduanya). |
 | **`hasil_voucher_food.txt`** / `.csv` | TXT / CSV | Laporan rinci pengecekan voucher Food (Status, Diskon 25RB, Ongkir 12RB). |
 | **`hasil_cek_misi.txt`** / `.csv` | TXT / CSV | Laporan riwayat pengecekan Misi Bayar QRIS (Tanggal, Koin, Status). |
+| **`hasil_ganti_nomor.txt`** / `.csv` | TXT / CSV | Laporan riwayat pengecekan kelayakan ganti nomor (Tanggal, Akun tersamar, Status, Keterangan). |
+| **`reedem_gantinomor.txt`** | TXT | Kumpulan akun bersih yang **layak (terdeteksi butuh Password/PIN)** tanpa duplikat. |
 | **`diskon_25rb.txt`** | TXT | Kumpulan akun yang **memiliki Diskon 25RB** (lengkap maupun parsial). |
 | **`valid_food.txt`** | TXT | Kumpulan akun yang **100% lolos syarat lengkap** (Diskon 25RB + Ongkir 12RB). |
 | **`misi_selesai.txt`** | TXT | Kumpulan akun yang misi bayar QRIS-nya sudah selesai atau berkoin. |
