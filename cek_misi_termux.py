@@ -37,6 +37,7 @@ try:
     WHITE = Fore.WHITE
     MAGENTA = Fore.MAGENTA
     BOLD = Style.BRIGHT
+    DIM = getattr(Style, "DIM", "\033[2m")
     RESET = Style.RESET_ALL
 except ImportError:
     CYAN = "\033[96m"
@@ -46,6 +47,7 @@ except ImportError:
     WHITE = "\033[97m"
     MAGENTA = "\033[95m"
     BOLD = "\033[1m"
+    DIM = "\033[2m"
     RESET = "\033[0m"
 
 
@@ -67,63 +69,11 @@ def print_banner():
     print(banner)
 
 
-def pilih_daftar_akun_bulk(auth_method: str = "auto"):
-    """Menampilkan pilihan file teks di folder atau paste langsung untuk mode bulk."""
-    txt_files = shopee_core.get_available_txt_files()
-
-    print(f"\n{CYAN}{BOLD}📦 PILIH SUMBER AKUN MODE MASSAL (BULK):{RESET}")
-    menu_idx = 1
-    file_map = {}
-
-    if txt_files:
-        print("  Ditemukan file teks di folder ini:")
-        for path_obj, count in txt_files:
-            print(f"  [{menu_idx}] 📄 {BOLD}{path_obj.name}{RESET} ({count} baris)")
-            file_map[str(menu_idx)] = path_obj
-            menu_idx += 1
-        print(f"  [{menu_idx}] 📁 Ketik nama/path file lain")
-        other_choice = str(menu_idx)
-        menu_idx += 1
-        print(f"  [{menu_idx}] ✍️  Paste langsung banyak akun/cookie sekaligus")
-        paste_choice = str(menu_idx)
-    else:
-        print(f"  [1] 📁 Masukkan nama/path file teks")
-        print(f"  [2] ✍️  Paste langsung banyak akun/cookie sekaligus")
-        other_choice = "1"
-        paste_choice = "2"
-
-    pilihan = input(f"\n{WHITE}Pilih sumber [1-{menu_idx}]: {RESET}").strip()
-
-    if pilihan in file_map:
-        return shopee_core.read_usernames(file_map[pilihan], auth_method=auth_method)
-    elif pilihan == other_choice:
-        fname = input("Masukkan path / nama file: ").strip()
-        return shopee_core.read_usernames(fname, auth_method=auth_method)
-    elif pilihan == paste_choice:
-        print("\nSilakan tempel (paste) daftar akun atau raw cookie Anda di bawah ini.")
-        if auth_method == "cookie":
-            print("(1 Raw Cookie per baris)")
-        else:
-            print("(Bisa satu per baris, atau dipisah koma/spasi untuk username).")
-        print("Tekan Enter dua kali (pada baris kosong) untuk selesai:")
-        lines = []
-        while True:
-            try:
-                line = input()
-            except EOFError:
-                break
-            if not line.strip() and lines:
-                break
-            if line.strip():
-                lines.append(line)
-        return shopee_core.parse_raw_accounts("\n".join(lines), auth_method=auth_method)
-    else:
-        print("⚠️ Pilihan tidak valid, mencoba membaca file default...")
-        if Path("daftar_username.txt").is_file():
-            return shopee_core.read_usernames("daftar_username.txt", auth_method=auth_method)
-        elif Path("food.txt").is_file():
-            return shopee_core.read_usernames("food.txt", auth_method=auth_method)
-        return shopee_core.read_usernames(auth_method=auth_method)
+# Hubungkan helper alur pengisian akun dari shopee_core
+pilih_metode_auth = shopee_core.pilih_metode_auth
+input_manual_account = shopee_core.input_manual_account
+print_bulk_format_guidance = shopee_core.print_bulk_format_guidance
+pilih_daftar_akun_bulk = shopee_core.pilih_daftar_akun_bulk
 
 
 async def run_misi_mode(client, usernames, auth_method="username", step_delay=2.5):
@@ -622,20 +572,28 @@ async def main():
     # Jika usernames belum diisi dari argumen file
     if not usernames:
         if not is_bulk:
-            print(f"\n{CYAN}{BOLD}--- TIPE EKSEKUSI ---{RESET}")
-            print(" [1] ⚡ Mode Satuan (Cek 1 Akun/Cookie Cepat)")
-            print(" [2] 📦 Mode Massal / Bulk (Banyak Akun dari File / Paste)")
-            tipe = input(f"{WHITE}Pilih tipe [1/2] (Default 2): {RESET}").strip()
-            if tipe == "1":
-                prompt_label = "raw cookie" if auth_method == "cookie" else "username"
-                acc = input(f"\nMasukkan 1 {prompt_label} Shopee: ").strip()
-                if not acc:
-                    print("❌ Input tidak boleh kosong.")
-                    return
-                usernames = [acc]
-            else:
-                is_bulk = True
-                usernames = pilih_daftar_akun_bulk(auth_method=auth_method)
+            while True:
+                print(f"\n{CYAN}{BOLD}⚙️ LANGKAH B - PILIH TIPE EKSEKUSI PENGISIAN AKUN:{RESET}")
+                print(f"  [1] ⚡ {BOLD}Isi Manual (1 Akun){RESET}")
+                print(f"      👉 Langsung ketik 1 akun (username atau cookie) di terminal.")
+                print(f"      👉 Dilengkapi validasi format, preview tersamar, & konfirmasi.")
+                print(f"  [2] 📦 {BOLD}Mode Massal / Bulk{RESET}")
+                print(f"      👉 Dituntun wizard 3 langkah: pilih sumber file / paste,")
+                print(f"         panduan format sesuai metode, & preview tersamar.")
+                tipe = input(f"{WHITE}Pilih tipe eksekusi [1/2, default: 2]: {RESET}").strip()
+                if tipe == "1":
+                    acc = input_manual_account(auth_method=auth_method)
+                    if not acc:
+                        print(f"{YELLOW}↩️ Kembali ke pilihan tipe eksekusi.{RESET}")
+                        continue
+                    usernames = [acc]
+                    break
+                elif tipe in ("", "2"):
+                    is_bulk = True
+                    usernames = pilih_daftar_akun_bulk(auth_method=auth_method)
+                    break
+                else:
+                    print(f"{YELLOW}⚠️ Pilihan tidak valid, silakan ketik 1 atau 2.{RESET}")
         else:
             usernames = pilih_daftar_akun_bulk(auth_method=auth_method)
 

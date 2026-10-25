@@ -16,19 +16,51 @@ Tools otomatisasi terpadu berbasis **Python & Telethon** untuk HP Android (Termu
 ---
 
 ## 📑 Daftar Isi
-1. [📦 Panduan Menyiapkan Daftar Akun (Mode Bulk / Massal)](#-panduan-menyiapkan-daftar-akun-mode-bulk--massal)
-2. [📱 Syarat & Persiapan Awal](#-syarat--persiapan-awal)
-3. [🔑 Panduan Mendapatkan API ID & API HASH Telegram](#-panduan-mendapatkan-api-id--api-hash-telegram)
-4. [📲 Panduan Lengkap Install di HP Android (Termux)](#-panduan-lengkap-install-di-hp-android-termux)
-5. [🚀 Cara Menjalankan Script](#-cara-menjalankan-script)
+1. [🔄 Cara Update Script](#-cara-update-script)
+2. [📦 Panduan Menyiapkan Daftar Akun (Mode Bulk / Massal)](#-panduan-menyiapkan-daftar-akun-mode-bulk--massal)
+3. [📱 Syarat & Persiapan Awal](#-syarat--persiapan-awal)
+4. [🔑 Panduan Mendapatkan API ID & API HASH Telegram](#-panduan-mendapatkan-api-id--api-hash-telegram)
+5. [📲 Panduan Lengkap Install di HP Android (Termux)](#-panduan-lengkap-install-di-hp-android-termux)
+6. [🚀 Cara Menjalankan Script](#-cara-menjalankan-script)
    - [Menu Utama (Interaktif)](#1-menu-utama-interaktif)
-   - [Panduan Mode Massal / Bulk](#2--panduan-mode-massal--bulk-banyak-akun-sekaligus)
-   - [Mode Satuan Cepat](#3--mode-satuan-cepat-cek-1-akun-langsung)
-   - [Runner Khusus Voucher Food (food.py)](#4-runner-khusus-voucher-food-foodpy)
-   - [Klaim Voucher ShopeeFood (voucher_claim.py)](#5-klaim-voucher-shopeefood-voucher_claimpy)
-6. [📊 Penjelasan File Output & Hasil](#-penjelasan-file-output--hasil)
-7. [❓ Tanya Jawab & Solusi Error (Troubleshooting)](#-tanya-jawab--solusi-error-troubleshooting)
-8. [🔒 Keamanan & Privasi](#-keamanan--privasi)
+   - [Panduan Alur Pengisian Akun (Manual vs Bulk)](#2-panduan-alur-pengisian-akun-manual-vs-bulk)
+   - [Panduan Mode Massal / Bulk](#3--panduan-mode-massal--bulk-banyak-akun-sekaligus)
+   - [Mode Satuan Cepat](#4--mode-satuan-cepat-cek-1-akun-langsung)
+   - [Runner Khusus Voucher Food (food.py)](#5-runner-khusus-voucher-food-foodpy)
+   - [Klaim Voucher ShopeeFood (voucher_claim.py)](#6-klaim-voucher-shopeefood-voucher_claimpy)
+7. [📊 Penjelasan File Output & Hasil](#-penjelasan-file-output--hasil)
+8. [❓ Tanya Jawab & Solusi Error (Troubleshooting)](#-tanya-jawab--solusi-error-troubleshooting)
+9. [🔒 Keamanan & Privasi](#-keamanan--privasi)
+
+---
+
+## 🔄 Cara Update Script
+
+### Pengguna Lama (Sudah Pernah Clone)
+Cukup jalankan perintah berikut di folder project:
+```bash
+cd Cek-Misi
+git pull origin main
+```
+
+### Pengguna Baru (Instalasi Pertama Kali)
+Unduh project langsung dari GitHub:
+```bash
+git clone https://github.com/RoseRina/Cek-Misi.git
+cd Cek-Misi
+```
+
+### Setelah Update
+Jalankan ulang program seperti biasa:
+```bash
+python cek_misi_termux.py
+```
+*(Opsional)* Jalankan pengujian untuk memastikan semua modul berfungsi normal:
+```bash
+python -m unittest tests/test_voucher_claim.py
+```
+
+> 💡 **Catatan:** File lokal seperti sesi Telegram (`*.session`), `telegram_config.json`, dan file daftar akun tidak akan tertimpa atau hilang saat `git pull` karena sudah dilindungi oleh aturan `.gitignore`.
 
 ---
 
@@ -230,7 +262,61 @@ Akan tampil menu interaktif:
 
 ---
 
-### 2. 📦 Panduan Mode Massal / Bulk (Banyak Akun Sekaligus)
+### 2. 🧭 Panduan Alur Pengisian Akun (Manual vs Bulk)
+
+Setelah Anda memilih mode pemeriksaan di menu utama (misalnya opsi `[1] Cek Misi Bayar QRIS` atau opsi `[2] Cek Voucher Shopee Food`), bot akan menuntun Anda melalui 2 langkah awal yang sangat jelas:
+
+#### 🔑 Langkah A: Pilih Metode Login Bot (`@shp_tools_bot`)
+Pilih jenis identitas yang ingin Anda gunakan untuk berkomunikasi dengan bot:
+- **`[1] Username / Email / ID` (Standar)**:  
+  Metode bawaan. Bot Shopee akan meminta kode verifikasi/OTP jika akun belum login di bot.
+- **`[2] Raw Cookie` (SPC_EC / SPC_U)**:  
+  Metode login instan langsung menggunakan token sesi Shopee tanpa menunggu OTP.
+- **`[3] Campuran / Otomatis`**:  
+  Auto-detect otomatis per entri. Cocok jika Anda punya file campuran yang berisi sebagian username dan sebagian raw cookie.
+
+---
+
+#### ⚙️ Langkah B: Pilih Tipe Eksekusi Pengisian Akun
+Tentukan bagaimana Anda ingin memasukkan akun:
+```text
+⚙️ LANGKAH B - PILIH TIPE EKSEKUSI PENGISIAN AKUN:
+  [1] ⚡ Isi Manual (1 Akun)
+      👉 Langsung ketik 1 akun (username atau cookie) di terminal.
+      👉 Dilengkapi validasi format, preview tersamar, & konfirmasi.
+  [2] 📦 Mode Massal / Bulk
+      👉 Dituntun wizard 3 langkah: pilih sumber file / paste,
+         panduan format sesuai metode, & preview tersamar.
+Pilih tipe eksekusi [1/2, default: 2]:
+```
+
+##### ⚡ Jika Anda Memilih [1] Isi Manual (1 Akun):
+1. Terminal akan menampilkan prompt pengisian sesuai metode yang dipilih pada Langkah A (misal: `Masukkan username / email / ID Shopee:` atau `Masukkan raw cookie Shopee (SPC_EC / SPC_U):`).
+2. **Validasi & Peringatan Otomatis**: Jika Anda memilih metode Cookie namun tidak sengaja memasukkan username biasa (atau sebaliknya), script akan memberi peringatan dan opsi konfirmasi atau perbaikan.
+3. **Preview Tersamar (Privacy Masking)**: Terminal menampilkan cuplikan akun dengan sensor/bintang (`****`) demi melindungi kerahasiaan cookie/token Anda dari intipan layar.
+4. **Konfirmasi Ramah**: Ketik `Y` untuk langsung eksekusi, `r` untuk ketik ulang jika salah, atau `b` untuk membatalkan dan kembali ke pilihan tipe eksekusi.
+
+##### 📦 Jika Anda Memilih [2] Mode Massal / Bulk:
+Anda akan dituntun secara interaktif melalui 3 langkah berurutan:
+1. **Langkah 1 (Pilih Sumber Akun)**:  
+   - Memilih file `.txt` yang otomatis terdeteksi di folder kerja (misal `daftar_username.txt` atau `food.txt`).
+   - Atau mengetik nama/path file lain.
+   - Atau memilih opsi *Paste Langsung* banyak akun sekaligus ke terminal.
+2. **Langkah 2 (Panduan Format & Contoh Sintetis yang Valid)**:  
+   Script menampilkan aturan format yang diharapkan sesuai metode di Langkah A, lengkap dengan contoh sintetis yang aman (tanpa data pribadi/asli).
+3. **Langkah 3 (Preview & Konfirmasi Sebelum Eksekusi)**:  
+   Script menghitung total akun, menampilkan rincian jenis entri, serta memperlihatkan 3 akun pertama dalam format tersamar (masked). Cukup tekan `Enter` atau `Y` untuk memulai eksekusi!
+4. **Penanganan Masalah yang Aman (Error Handling)**:  
+   Jika nama file yang diketik salah, file kosong, atau format tidak sesuai, script **tidak akan berhenti atau crash**, melainkan memberikan pesan petunjuk jelas dan secara otomatis mengembalikan Anda ke Langkah 1.
+
+> 🎟️ **Fitur yang Sama pada Menu [7] (Klaim Voucher ShopeeFood):**  
+> Saat membuka Menu `[7]` (`voucher_claim.py`), Anda juga disuguhkan pilihan:
+> - `[1] Isi Manual (1 Akun)`: Untuk klaim kilat 1 akun/email langsung tanpa repot membuat file `.txt`.
+> - `[2] Mode Massal / Bulk File`: Untuk memproses antrean klaim banyak akun secara berurutan dari file `.txt`.
+
+---
+
+### 3. 📦 Panduan Mode Massal / Bulk (Banyak Akun Sekaligus)
 
 Mode ini dirancang khusus untuk memproses puluhan hingga ratusan akun tanpa ribet:
 
@@ -260,7 +346,7 @@ python cek_misi_termux.py daftar_username.txt --mode both --resume --delay 3
 
 ---
 
-### 3. ⚡ Mode Satuan Cepat (Cek 1 Akun Langsung)
+### 4. ⚡ Mode Satuan Cepat (Cek 1 Akun Langsung)
 Jika Anda hanya ingin mengecek atau mengklaim 1 akun cepat tanpa membuka menu:
 ```bash
 # Cek Misi QRIS untuk 1 akun:
@@ -275,7 +361,7 @@ python cek_misi_termux.py --single email_target@gmail.com --mode claim
 
 ---
 
-### 4. Runner Khusus Voucher Food (`food.py`)
+### 5. Runner Khusus Voucher Food (`food.py`)
 Bagi Anda yang fokus mengecek voucher Shopee Food (Diskon 25RB & 12RB):
 ```bash
 python food.py
@@ -285,7 +371,7 @@ python food.py food.txt
 
 ---
 
-### 5. 🎟️ Klaim Voucher ShopeeFood (`voucher_claim.py`)
+### 6. 🎟️ Klaim Voucher ShopeeFood (`voucher_claim.py`)
 Fitur otomatisasi klaim voucher ShopeeFood ke bot Telegram `@shp_tools_bot`:
 1. Mengirim perintah `/account`
 2. Menemukan & mengklik tombol **Claim Voucher**

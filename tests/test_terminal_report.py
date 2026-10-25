@@ -706,6 +706,41 @@ class TestTerminalReport(unittest.TestCase):
                 shopee_core.RESULTS_FOOD_TXT = orig_txt
                 shopee_core.DISKON_25K_TXT = orig_25k
 
+    def test_color_constants_defined(self):
+        """Pastikan semua konstanta warna dan gaya ANSI terdefinisi di shopee_core."""
+        for color_name in ("CYAN", "GREEN", "YELLOW", "RED", "WHITE", "MAGENTA", "BOLD", "DIM", "RESET"):
+            self.assertTrue(hasattr(shopee_core, color_name), f"{color_name} harus ada di shopee_core")
+            val = getattr(shopee_core, color_name)
+            self.assertIsInstance(val, str)
+
+    def test_input_manual_account_username(self):
+        """Pastikan input_manual_account bekerja untuk username dan konfirmasi Y tanpa NameError."""
+        from unittest.mock import patch
+        with patch("builtins.input", side_effect=["test_user123", "y"]):
+            res = shopee_core.input_manual_account("username")
+            self.assertEqual(res, "test_user123")
+
+    def test_input_manual_account_cookie(self):
+        """Pastikan input_manual_account bekerja untuk cookie dan konfirmasi default Enter."""
+        from unittest.mock import patch
+        fake_cookie = "SPC_EC=token_123; SPC_U=999;"
+        with patch("builtins.input", side_effect=[fake_cookie, ""]):
+            res = shopee_core.input_manual_account("cookie")
+            self.assertEqual(res, fake_cookie)
+
+    def test_input_manual_account_cancel(self):
+        """Pastikan input_manual_account mengembalikan None jika pengguna mengetik 'b'."""
+        from unittest.mock import patch
+        with patch("builtins.input", side_effect=["b"]):
+            res = shopee_core.input_manual_account("username")
+            self.assertIsNone(res)
+
+    def test_bulk_format_guidance_all_modes(self):
+        """Pastikan print_bulk_format_guidance berjalan lancar tanpa error formatting/warna."""
+        for mode in ("username", "cookie", "auto"):
+            shopee_core.print_bulk_format_guidance(mode)
+
 
 if __name__ == "__main__":
     unittest.main()
+

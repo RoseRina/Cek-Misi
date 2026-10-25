@@ -163,6 +163,123 @@ class TestShopeeFoodVoucherRegression(unittest.TestCase):
         self.assertEqual(status, "TIDAK MEMENUHI")
         self.assertFalse(is_valid)
 
+    def test_case_9_lintas_kartu_tidak_boleh_digabung(self):
+        """Memastikan kriteria dari 2 kartu berbeda TIDAK digabung menjadi false positive."""
+        html = """
+        <article class="vc" data-g="all food">
+          <div class="stub food"><span class="stub-t">SHOPEEFOOD</span></div>
+          <div class="body">
+            <div class="h">Diskon 100% s.d. Rp10RB</div>
+            <div class="m">Tanpa min. belanja</div>
+            <div class="chips"><span class="chip">ShopeePay</span></div>
+            <div class="code"><code>DUMMY10K</code></div>
+          </div>
+        </article>
+        <article class="vc" data-g="all food">
+          <div class="stub food"><span class="stub-t">SHOPEEFOOD</span></div>
+          <div class="body">
+            <div class="h">Diskon 20% s.d. Rp25RB</div>
+            <div class="m">Min. Blj Rp50RB</div>
+            <div class="chips"><span class="chip">ShopeePay</span></div>
+            <div class="code"><code>DUMMY25K</code></div>
+          </div>
+        </article>
+        """
+        self.false(is_shopeefood_25k_voucher(html))
+        self.false(is_shopeefood_ongkir_12k(html))
+
+    def test_case_10_masa_berlaku_dan_status_kadaluwarsa(self):
+        """Voucher dengan diskon 25RB tapi status kedaluwarsa atau belum mulai wajib ditolak."""
+        # Kedaluwarsa
+        html_expired = """
+        <article class="vc" data-g="all food">
+          <div class="stub food"><span class="stub-t">SHOPEEFOOD</span></div>
+          <div class="body">
+            <div class="h">Diskon 100% s.d. Rp25RB</div>
+            <div class="m">Tanpa min. belanja</div>
+            <div class="v">Telah berakhir pada 20.10.2026</div>
+            <div class="chips"><span class="chip">ShopeePay</span></div>
+            <div class="code"><code>SPPSF2533TESTEXPIRED</code></div>
+          </div>
+        </article>
+        """
+        self.false(is_shopeefood_25k_voucher(html_expired))
+
+        # Belum mulai (soon)
+        html_soon = """
+        <article class="vc" data-g="all food">
+          <div class="stub food"><span class="stub-t">SHOPEEFOOD</span></div>
+          <div class="body">
+            <div class="h">Diskon 100% s.d. Rp25RB</div>
+            <div class="m">Tanpa min. belanja</div>
+            <div class="v soon">Mulai besok pukul 00:00</div>
+            <div class="chips"><span class="chip">ShopeePay</span></div>
+            <div class="code"><code>SPPSF2533TESTSOON</code></div>
+          </div>
+        </article>
+        """
+        self.false(is_shopeefood_25k_voucher(html_soon))
+
+    def test_case_11_varian_bank_dan_spaylater(self):
+        """Voucher dengan metode khusus bank atau SPayLater wajib ditolak."""
+        # Bank BRI
+        html_bank = """
+        <article class="vc" data-g="all food">
+          <div class="stub food"><span class="stub-t">SHOPEEFOOD</span></div>
+          <div class="body">
+            <div class="h">Diskon 100% s.d. Rp25RB</div>
+            <div class="m">Tanpa min. belanja</div>
+            <div class="chips"><span class="chip">Kartu Debit BRI</span></div>
+            <div class="code"><code>BRIFOOD25K</code></div>
+          </div>
+        </article>
+        """
+        self.false(is_shopeefood_25k_voucher(html_bank))
+
+        # Title memuat SPayLater
+        html_paylater_title = """
+        <article class="vc" data-g="all food">
+          <div class="stub food"><span class="stub-t">SHOPEEFOOD</span></div>
+          <div class="body">
+            <div class="h">Diskon 100% s.d. Rp25RB SPayLater</div>
+            <div class="m">Tanpa min. belanja</div>
+            <div class="chips"><span class="chip">Pengguna Baru</span></div>
+            <div class="code"><code>LATER2533</code></div>
+          </div>
+        </article>
+        """
+        self.false(is_shopeefood_25k_voucher(html_paylater_title))
+
+    def test_case_12_ongkir_variations(self):
+        """Uji variasi voucher ongkir 12k ShopeeFood."""
+        # Ongkir SPayLater (wajib tolak)
+        html_ongkir_later = """
+        <article class="vc" data-g="all food">
+          <div class="stub food"><span class="stub-t">SHOPEEFOOD</span></div>
+          <div class="body">
+            <div class="h">Diskon Ongkir Rp12RB</div>
+            <div class="m">Tanpa min. belanja</div>
+            <div class="chips"><span class="chip">SPayLater</span></div>
+            <div class="code"><code>ONGKIRLATER12</code></div>
+          </div>
+        </article>
+        """
+        self.false(is_shopeefood_ongkir_12k(html_ongkir_later))
+
+        # Ongkir campaign code SPPSH2033 valid
+        html_ongkir_sppsh2033 = """
+        <article class="vc" data-g="all food">
+          <div class="stub food"><span class="stub-t">SHOPEEFOOD</span></div>
+          <div class="body">
+            <div class="h">Diskon Ongkir Rp12RB</div>
+            <div class="m">Tanpa min. belanja</div>
+            <div class="chips"><span class="chip">ShopeePay</span></div>
+            <div class="code"><code>SPPSH20339999999999999999999999</code></div>
+          </div>
+        </article>
+        """
+        self.true(is_shopeefood_ongkir_12k(html_ongkir_sppsh2033))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -45,6 +45,30 @@ POLL_INTERVAL = 0.5
 BUTTON_TIMEOUT = 20
 RESULT_TIMEOUT = 55
 
+# Inisialisasi pewarnaan terminal (fallback aman jika colorama tidak terpasang)
+try:
+    from colorama import init, Fore, Style
+    init(autoreset=True)
+    CYAN = Fore.CYAN
+    GREEN = Fore.GREEN
+    YELLOW = Fore.YELLOW
+    RED = Fore.RED
+    WHITE = Fore.WHITE
+    MAGENTA = Fore.MAGENTA
+    BOLD = Style.BRIGHT
+    DIM = getattr(Style, "DIM", "\033[2m")
+    RESET = Style.RESET_ALL
+except ImportError:
+    CYAN = "\033[96m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    RED = "\033[91m"
+    WHITE = "\033[97m"
+    MAGENTA = "\033[95m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    RESET = "\033[0m"
+
 
 # =====================================================================
 # PENGELOLAAN KONFIGURASI & SESI TELEGRAM
@@ -419,8 +443,266 @@ def read_usernames(filepath=None, auth_method: str = "auto"):
     return usernames
 
 
+def pilih_metode_auth() -> str:
+    """Meminta pengguna memilih metode login ke bot Shopee (Langkah A).
+    
+    Pilihan:
+      [1] Username / Email / ID (Standar)
+      [2] Raw Cookie (SPC_EC / SPC_U)
+      [3] Campuran / Otomatis (Auto-Detect per entri)
+    Default eksplisit tertulis di teks prompt: [1/2/3, default: 1].
+    """
+    print(f"\n{CYAN}{BOLD}🔑 LANGKAH A - PILIH METODE LOGIN BOT (@shp_tools_bot):{RESET}")
+    print(f"  [1] 📧 {BOLD}Username / Email / ID{RESET} (Standar - bot minta kode verifikasi/OTP)")
+    print(f"  [2] 🍪 {BOLD}Raw Cookie{RESET} (SPC_EC / SPC_U - login instan tanpa OTP)")
+    print(f"  [3] 🔄 {BOLD}Campuran / Otomatis{RESET} (Auto-Detect per entri, untuk file campuran)")
+    opt = input(f"{WHITE}Pilih metode login [1/2/3, default: 1]: {RESET}").strip()
+    if opt == "2":
+        return "cookie"
+    elif opt == "3":
+        return "auto"
+    return "username"
 
-# =====================================================================
+
+def input_manual_account(auth_method: str = "username") -> Optional[str]:
+    """Jalur pengisian 1 akun secara manual di terminal (Mode Satuan).
+    
+    Fitur:
+    - Label prompt dinamis sesuai metode di Langkah A
+    - Validasi format dan peringatan ketidakcocokan format
+    - Preview tersamar (masking) tanpa pernah menampilkan raw cookie utuh
+    - Konfirmasi sebelum eksekusi [Y/n], 'r' untuk isi ulang, 'b' untuk kembali ke menu.
+    
+    Mengembalikan string akun jika dikonfirmasi, atau None jika pengguna membatalkan ('b').
+    """
+    if auth_method == "cookie":
+        prompt_label = "raw cookie Shopee (SPC_EC / SPC_U)"
+    elif auth_method == "username":
+        prompt_label = "username / email / ID Shopee"
+    else:
+        prompt_label = "entri akun Shopee (username atau raw cookie)"
+
+    print(f"\n{CYAN}{BOLD}⚡ PENGISIAN MANUAL (1 AKUN){RESET}")
+    print(f"  Metode aktif: {BOLD}{auth_method.upper()}{RESET}")
+    print(f"  {DIM}(Ketik 'b' untuk kembali ke menu pilihan){RESET}")
+
+    while True:
+        raw_val = input(f"\n{WHITE}Masukkan {prompt_label}: {RESET}").strip()
+
+        if not raw_val:
+            print(f"{YELLOW}⚠️ Input tidak boleh kosong. Silakan ketik akun atau 'b' untuk kembali.{RESET}")
+            continue
+
+        if raw_val.casefold() in ("b", "back", "kembali"):
+            return None
+
+        detected = detect_auth_method(raw_val)
+
+        # Cek kesesuaian format dengan metode yang dipilih
+        if auth_method == "cookie" and detected != "cookie":
+            print(f"\n{YELLOW}⚠️ PERINGATAN: Anda memilih metode Raw Cookie, namun input tidak terdeteksi")
+            print(f"   mengandung format cookie Shopee (SPC_EC / SPC_U).{RESET}")
+            tanya = input(f"   Tetap lanjutkan dengan akun ini? [y/N/r (isi ulang)/b (kembali), default: N]: ").strip().casefold()
+            if tanya in ("r", "ulang", "retry"):
+                continue
+            elif tanya in ("b", "back", "kembali"):
+                return None
+            elif tanya not in ("y", "ya", "yes"):
+                continue
+
+        elif auth_method == "username" and detected == "cookie":
+            print(f"\n{YELLOW}⚠️ PERINGATAN: Anda memilih metode Username / Email / ID, namun input terdeteksi")
+            print(f"   berformat Raw Cookie (SPC_EC / SPC_U).{RESET}")
+            tanya = input(f"   Tetap lanjutkan dengan cookie ini? [y/N/r (isi ulang)/b (kembali), default: N]: ").strip().casefold()
+            if tanya in ("r", "ulang", "retry"):
+                continue
+            elif tanya in ("b", "back", "kembali"):
+                return None
+            elif tanya not in ("y", "ya", "yes"):
+                continue
+
+        # Preview tersamar (Masked Preview - aman dari pembocoran token/cookie)
+        masked_preview = format_account_display(raw_val, auth_method)
+        tipe_entri = "Raw Cookie" if detected == "cookie" else "Username/ID"
+
+        print(f"\n{CYAN}{BOLD}🔍 PREVIEW AKUN SATUAN:{RESET}")
+        print(f"  • Entri Tersamar : {BOLD}{masked_preview}{RESET}")
+        print(f"  • Tipe Terdeteksi: {tipe_entri}")
+
+        conf = input(f"\n{WHITE}Lanjutkan eksekusi akun ini? [Y/n/r (ulang)/b (kembali), default: Y]: {RESET}").strip().casefold()
+        if conf in ("r", "ulang", "retry"):
+            continue
+        elif conf in ("b", "back", "kembali"):
+            return None
+        elif conf in ("", "y", "ya", "yes"):
+            return raw_val
+        elif conf in ("n", "no"):
+            print(f"{YELLOW}Input dibatalkan. Silakan ketik ulang atau ketik 'b' untuk kembali.{RESET}")
+            continue
+        else:
+            if conf.startswith("y"):
+                return raw_val
+            print(f"{YELLOW}Pilihan tidak dikenal. Silakan ketik ulang atau ketik 'b' untuk kembali.{RESET}")
+            continue
+
+
+def print_bulk_format_guidance(auth_method: str = "auto"):
+    """Menampilkan panduan format file/input bulk yang diharapkan (Langkah 2)
+    beserta contoh PALSU yang aman.
+    """
+    print(f"\n{CYAN}{BOLD}📋 LANGKAH 2 DARI 3: FORMAT YANG DIHARAPKAN{RESET}")
+    if auth_method == "cookie":
+        print(f"  • Metode : {BOLD}Raw Cookie{RESET}")
+        print("  • Format : 1 raw cookie per baris penuh.")
+        print("    (JANGAN dipotong dan JANGAN memecah titik koma ';' di dalam cookie).")
+        print("  • Contoh baris yang valid (PALSU / AMAN):")
+        print(f"    {DIM}SPC_EC=contoh_token_palsu_alpha123; SPC_U=10000001;{RESET}")
+        print(f"    {DIM}SPC_EC=contoh_token_palsu_bravo456; SPC_U=10000002;{RESET}")
+    elif auth_method == "username":
+        print(f"  • Metode : {BOLD}Username / Email / ID{RESET}")
+        print("  • Format : 1 username per baris, atau dipisah koma/spasi.")
+        print("  • Contoh baris yang valid (PALSU / AMAN):")
+        print(f"    {DIM}user_shopee_01{RESET}")
+        print(f"    {DIM}user_shopee_02, user_shopee_03{RESET}")
+        print(f"    {DIM}user_email_04@gmail.com{RESET}")
+    else:  # auto / campuran
+        print(f"  • Metode : {BOLD}Campuran / Auto-Detect{RESET}")
+        print("  • Format : 1 entri per baris. Username dan Raw Cookie boleh dicampur.")
+        print("  • Contoh baris yang valid (PALSU / AMAN):")
+        print(f"    {DIM}user_shopee_01{RESET}")
+        print(f"    {DIM}SPC_EC=contoh_token_palsu_alpha123; SPC_U=10000001;{RESET}")
+        print(f"    {DIM}user_email_02@gmail.com{RESET}")
+
+
+def pilih_daftar_akun_bulk(auth_method: str = "auto") -> List[str]:
+    """Wizard bertahap untuk memilih sumber akun massal (bulk):
+    Langkah 1: Pilih sumber (file yang ada / ketik path file lain / paste langsung).
+    Langkah 2: Format yang diharapkan sesuai metode (dengan contoh palsu).
+    Langkah 3: Preview tersamar & konfirmasi sebelum eksekusi.
+    Langkah 4 (Error handling): Jika file tidak ditemukan, kosong, atau format salah,
+               tampilkan pesan jelas dan KEMBALI ke Langkah 1.
+    """
+    while True:
+        txt_files = get_available_txt_files()
+
+        print(f"\n{CYAN}{BOLD}===================================================={RESET}")
+        print(f"📦 {BOLD}WIZARD BULK - LANGKAH 1 DARI 3: PILIH SUMBER AKUN{RESET}")
+        print(f"{CYAN}===================================================={RESET}")
+        menu_idx = 1
+        file_map = {}
+
+        if txt_files:
+            print("  Daftar file teks yang terdeteksi di folder:")
+            for path_obj, count in txt_files:
+                print(f"  [{menu_idx}] 📄 {BOLD}{path_obj.name}{RESET} ({count} baris)")
+                file_map[str(menu_idx)] = path_obj
+                menu_idx += 1
+            print(f"  [{menu_idx}] 📁 Ketik nama/path file lain")
+            other_choice = str(menu_idx)
+            menu_idx += 1
+            print(f"  [{menu_idx}] ✍️  Paste langsung banyak akun/cookie sekaligus")
+            paste_choice = str(menu_idx)
+        else:
+            print("  [1] 📁 Masukkan nama/path file teks")
+            print("  [2] ✍️  Paste langsung banyak akun/cookie sekaligus")
+            other_choice = "1"
+            paste_choice = "2"
+
+        pilihan = input(f"\n{WHITE}Pilih sumber [1-{menu_idx}]: {RESET}").strip()
+
+        raw_accounts = []
+        source_name = ""
+
+        if pilihan in file_map:
+            chosen_path = file_map[pilihan]
+            source_name = chosen_path.name
+            try:
+                raw_accounts = read_usernames(chosen_path, auth_method=auth_method)
+            except Exception as e:
+                print(f"\n{RED}❌ Gagal membaca file '{chosen_path.name}': {e}{RESET}")
+                print(f"{YELLOW}👉 Kembali ke Langkah 1 untuk memilih sumber lain.{RESET}")
+                continue
+
+        elif pilihan == other_choice:
+            fname = input("Masukkan path / nama file: ").strip()
+            if not fname:
+                print(f"\n{RED}❌ Nama file tidak boleh kosong!{RESET}")
+                print(f"{YELLOW}👉 Kembali ke Langkah 1 untuk memilih sumber lain.{RESET}")
+                continue
+            path_obj = Path(fname).expanduser()
+            if not path_obj.is_file():
+                print(f"\n{RED}❌ Error: File '{fname}' tidak ditemukan! Silakan periksa kembali path file.{RESET}")
+                print(f"{YELLOW}👉 Kembali ke Langkah 1 untuk memilih sumber lain.{RESET}")
+                continue
+            source_name = path_obj.name
+            try:
+                raw_accounts = read_usernames(path_obj, auth_method=auth_method)
+            except Exception as e:
+                print(f"\n{RED}❌ Gagal membaca file '{fname}': {e}{RESET}")
+                print(f"{YELLOW}👉 Kembali ke Langkah 1 untuk memilih sumber lain.{RESET}")
+                continue
+
+        elif pilihan == paste_choice:
+            source_name = "Paste Langsung"
+            print_bulk_format_guidance(auth_method)
+            print(f"\n{WHITE}Tempel (paste) daftar akun Anda di bawah ini.")
+            print(f"Tekan Enter dua kali (pada baris kosong) jika sudah selesai:{RESET}")
+            lines = []
+            while True:
+                try:
+                    line = input()
+                except EOFError:
+                    break
+                if not line.strip() and lines:
+                    break
+                if line.strip():
+                    lines.append(line)
+            if not lines:
+                print(f"\n{RED}❌ Input paste kosong! Tidak ada akun yang dimasukkan.{RESET}")
+                print(f"{YELLOW}👉 Kembali ke Langkah 1 untuk memilih sumber lain.{RESET}")
+                continue
+            raw_accounts = parse_raw_accounts("\n".join(lines), auth_method=auth_method)
+
+        else:
+            print(f"\n{YELLOW}⚠️ Pilihan tidak valid (harus 1-{menu_idx}). Silakan coba lagi.{RESET}")
+            continue
+
+        if not raw_accounts:
+            print(f"\n{RED}❌ Error: Sumber '{source_name}' tidak menghasilkan entri akun yang valid.{RESET}")
+            print_bulk_format_guidance(auth_method)
+            print(f"{YELLOW}👉 Kembali ke Langkah 1 untuk memilih sumber lain.{RESET}")
+            continue
+
+        # Jika bukan paste, tampilkan Langkah 2 (Format yang Diharapkan) sebelum Preview
+        if pilihan != paste_choice:
+            print_bulk_format_guidance(auth_method)
+
+        # Langkah 3: Preview sebelum jalan & konfirmasi
+        total_entri = len(raw_accounts)
+        cookie_count = sum(1 for a in raw_accounts if detect_auth_method(a) == "cookie")
+        username_count = total_entri - cookie_count
+
+        print(f"\n{CYAN}{BOLD}🔍 LANGKAH 3 DARI 3: PREVIEW SEBELUM JALAN{RESET}")
+        print(f"  • Sumber        : {BOLD}{source_name}{RESET}")
+        print(f"  • Total Entri   : {BOLD}{total_entri} akun{RESET}")
+        print(f"  • Rincian Jenis : {username_count} Username/Email/ID, {cookie_count} Raw Cookie")
+        print(f"  • Preview 3 Entri Pertama (Tersamar):")
+        for p_idx, acc in enumerate(raw_accounts[:3], 1):
+            disp = format_account_display(acc, auth_method)
+            tipe_entri = "Raw Cookie" if detect_auth_method(acc) == "cookie" else "Username/ID"
+            print(f"    [{p_idx}] {disp} ({tipe_entri})")
+
+        conf = input(f"\n{WHITE}Lanjutkan dengan {total_entri} akun ini? [Y/n, ketik 'b' untuk ganti sumber, default: Y]: {RESET}").strip().casefold()
+        if conf in ("b", "back", "kembali", "n", "no"):
+            print(f"\n{YELLOW}↩️ Membatalkan pilihan sumber. Kembali ke Langkah 1...{RESET}")
+            continue
+        elif conf in ("", "y", "ya", "yes"):
+            return raw_accounts
+        else:
+            if conf.startswith("y"):
+                return raw_accounts
+            print(f"\n{YELLOW}Pilihan tidak dipahami. Kembali ke Langkah 1...{RESET}")
+            continue
 # HELPER BOT TELEGRAM
 # =====================================================================
 
@@ -757,33 +1039,44 @@ def _is_target_25k_card(card: dict) -> bool:
     if not _is_food_category(card):
         return False
 
-    # 2. Syarat pembayaran & metode: Tolak SPayLater (seperti JAJANLATER) dan kartu bank tertentu
-    if any("spaylater" in chip for chip in card["chips"]) or "later" in card["code"].casefold():
+    # 2. Syarat pembayaran & metode: Tolak SPayLater / PayLater dan kartu bank / pickup
+    # Chip "ShopeePay" saja BUKAN SPayLater dan tidak boleh ditolak
+    chip_texts = [str(chip).casefold() for chip in card.get("chips", [])]
+    has_spaylater_chip = any("spaylater" in chip or "paylater" in chip for chip in chip_texts)
+    has_later_code = "later" in card.get("code", "").casefold()
+    has_later_stub = any("later" in str(sc).casefold() for sc in card.get("stub_classes", []))
+    title_lower = card.get("title", "").casefold()
+    has_later_title = "spaylater" in title_lower or "paylater" in title_lower
+
+    if has_spaylater_chip or has_later_code or has_later_stub or has_later_title:
         return False
+
     bank_keywords = ("kartu debit", "kartu kredit", "debit", "kredit", "btn", "bri", "bni", "bca", "cimb", "mandiri", "dbs", "digibank")
-    if any(any(b in chip for b in bank_keywords) for chip in card["chips"]):
+    if any(any(b in chip for b in bank_keywords) for chip in chip_texts) or any(b in title_lower for b in bank_keywords):
         return False
-    if any("pickup" in chip for chip in card["chips"]):
+    if any("pickup" in chip for chip in chip_texts) or "pickup" in title_lower:
         return False
 
     # 3. Status dan masa berlaku: Tolak voucher yang belum mulai atau sudah kedaluwarsa/habis
-    if "soon" in card["val_classes"] or "mulai" in card["validity"].casefold():
+    val_classes = [str(vc).casefold() for vc in card.get("val_classes", [])]
+    validity_lower = card.get("validity", "").casefold()
+    if "soon" in val_classes or "mulai" in validity_lower:
         return False
-    if any(exp in card["validity"].casefold() for exp in ("habis", "kadaluwarsa", "telah berakhir")):
+    if any(exp in validity_lower for exp in ("habis", "kadaluwarsa", "kedaluwarsa", "telah berakhir")):
         return False
 
     # 4. Minimum belanja: Wajib Tanpa Min. Belanja
-    if not _is_no_min_spend(card["min_spend"]):
+    if not _is_no_min_spend(card.get("min_spend", "")):
         return False
 
     # 5. Nilai & jenis diskon: Wajib 100% s.d. 25RB atau kode resmi campaign SPPSF2533 / SPPSF2033
-    if re.search(r"^SPPSF2[05]33", card["code"], re.IGNORECASE):
+    if re.search(r"^SPPSF2[05]33", card.get("code", ""), re.IGNORECASE):
         return True
 
-    has_100 = bool(re.search(r"100\s*%", card["title"]))
-    has_25k = bool(re.search(r"(?:rp)?25(?:\s*rb|\.?000)\b", card["title"], re.IGNORECASE))
+    has_100 = bool(re.search(r"100\s*%", card.get("title", "")))
+    has_25k = bool(re.search(r"(?:rp)?25(?:\s*rb|\.?000)\b", card.get("title", ""), re.IGNORECASE))
     if has_100 and has_25k:
-        other_pct = re.findall(r"(\d+)\s*%", card["title"])
+        other_pct = re.findall(r"(\d+)\s*%", card.get("title", ""))
         if other_pct and any(int(p) != 100 for p in other_pct):
             return False
         return True
@@ -796,32 +1089,42 @@ def _is_target_12k_ongkir_card(card: dict) -> bool:
     # 1. Kategori wajib ShopeeFood (bukan gratis ongkir umum marketplace / FSV)
     if not _is_food_category(card):
         return False
-    if "fsv" in card["stub_classes"] and "food" not in card["groups"]:
+    if "fsv" in card.get("stub_classes", []) and "food" not in card.get("groups", []):
         return False
 
-    # 2. Syarat metode: Tolak SPayLater (ONGKIRLATER) & bank card khusus
-    if any("spaylater" in chip for chip in card["chips"]) or "later" in card["code"].casefold():
+    # 2. Syarat metode: Tolak SPayLater / PayLater (ONGKIRLATER) & bank card khusus
+    chip_texts = [str(chip).casefold() for chip in card.get("chips", [])]
+    has_spaylater_chip = any("spaylater" in chip or "paylater" in chip for chip in chip_texts)
+    has_later_code = "later" in card.get("code", "").casefold()
+    has_later_stub = any("later" in str(sc).casefold() for sc in card.get("stub_classes", []))
+    title_lower = card.get("title", "").casefold()
+    has_later_title = "spaylater" in title_lower or "paylater" in title_lower
+
+    if has_spaylater_chip or has_later_code or has_later_stub or has_later_title:
         return False
+
     bank_keywords = ("kartu debit", "kartu kredit", "debit", "kredit", "btn", "bri", "bni", "bca", "cimb", "mandiri", "dbs", "digibank")
-    if any(any(b in chip for b in bank_keywords) for chip in card["chips"]):
+    if any(any(b in chip for b in bank_keywords) for chip in chip_texts) or any(b in title_lower for b in bank_keywords):
         return False
 
     # 3. Status dan masa berlaku
-    if "soon" in card["val_classes"] or "mulai" in card["validity"].casefold():
+    val_classes = [str(vc).casefold() for vc in card.get("val_classes", [])]
+    validity_lower = card.get("validity", "").casefold()
+    if "soon" in val_classes or "mulai" in validity_lower:
         return False
-    if any(exp in card["validity"].casefold() for exp in ("habis", "kadaluwarsa", "telah berakhir")):
+    if any(exp in validity_lower for exp in ("habis", "kadaluwarsa", "kedaluwarsa", "telah berakhir")):
         return False
 
     # 4. Minimum belanja: Wajib Tanpa Min. Belanja
-    if not _is_no_min_spend(card["min_spend"]):
+    if not _is_no_min_spend(card.get("min_spend", "")):
         return False
 
     # 5. Nilai diskon: Diskon Ongkir 12RB atau kode resmi campaign SPPSH2433 / SPPSH2033
-    if re.search(r"^SPPSH2[04]33", card["code"], re.IGNORECASE):
+    if re.search(r"^SPPSH2[04]33", card.get("code", ""), re.IGNORECASE):
         return True
 
-    has_ongkir = bool(re.search(r"ongkir", card["title"], re.IGNORECASE))
-    has_12k = bool(re.search(r"(?:rp)?12(?:\s*rb|\.?000)\b", card["title"], re.IGNORECASE))
+    has_ongkir = bool(re.search(r"ongkir", card.get("title", ""), re.IGNORECASE))
+    has_12k = bool(re.search(r"(?:rp)?12(?:\s*rb|\.?000)\b", card.get("title", ""), re.IGNORECASE))
     return has_ongkir and has_12k
 
 

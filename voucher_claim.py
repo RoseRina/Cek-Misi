@@ -30,7 +30,9 @@ GREEN = "\033[92m"
 YELLOW = "\033[93m"
 RED = "\033[91m"
 WHITE = "\033[97m"
+MAGENTA = "\033[95m"
 BOLD = "\033[1m"
+DIM = "\033[2m"
 RESET = "\033[0m"
 
 DEFAULT_BOT = "@shp_tools_bot"
@@ -863,39 +865,70 @@ async def interactive_voucher_claim_menu():
 
     current_links = [v1, v2]
 
-    # 2. Pemilihan File Sumber Akun
-    print(f"\n📁 {BOLD}Pilih File Sumber Akun/Identitas:{RESET}")
-    file_options = []
-    if DEFAULT_ACCOUNTS_FILE.is_file():
-        file_options.append(DEFAULT_ACCOUNTS_FILE)
-    for p, _ in shopee_core.get_available_txt_files():
-        if p not in file_options and p.name not in ("requirements.txt", "valid_food.txt"):
-            file_options.append(p)
-
+    # 2. Pemilihan Tipe Pengisian Akun (Manual vs Bulk File)
+    claim_accounts = None
     selected_file = None
-    if file_options:
-        for idx, fpath in enumerate(file_options, 1):
-            print(f"  [{idx}] 📄 {fpath.name}")
-        print(f"  [{len(file_options) + 1}] ✍️  Ketik nama/path file lain")
-        choice = input(f"{WHITE}Pilih file [1-{len(file_options) + 1}] (Default 1): {RESET}").strip()
-        try:
-            choice_idx = int(choice) if choice else 1
-            if 1 <= choice_idx <= len(file_options):
-                selected_file = file_options[choice_idx - 1]
-        except ValueError:
-            pass
 
-    if not selected_file:
-        custom_file = input("Masukkan nama/path file akun: ").strip()
-        selected_file = Path(custom_file) if custom_file else DEFAULT_ACCOUNTS_FILE
+    while True:
+        print(f"\n{CYAN}{BOLD}⚙️ PILIH TIPE EKSEKUSI PENGISIAN AKUN KLAIM VOUCHER:{RESET}")
+        print(f"  [1] ⚡ {BOLD}Isi Manual (1 Akun){RESET}")
+        print(f"      👉 Langsung ketik 1 username/email/ID Shopee di terminal.")
+        print(f"      👉 Dilengkapi validasi format, preview tersamar, & konfirmasi.")
+        print(f"  [2] 📦 {BOLD}Mode Massal / Bulk File{RESET}")
+        print(f"      👉 Klaim otomatis untuk banyak akun sekaligus dari file teks (.txt).")
+        tipe_klaim = input(f"{WHITE}Pilih tipe [1/2, default: 2]: {RESET}").strip()
+
+        if tipe_klaim == "1":
+            acc = shopee_core.input_manual_account(auth_method="username")
+            if not acc:
+                print(f"{YELLOW}↩️ Kembali ke pilihan tipe pengisian akun klaim.{RESET}")
+                continue
+            claim_accounts = [acc]
+            break
+        elif tipe_klaim in ("", "2"):
+            # Pemilihan File Sumber Akun
+            print(f"\n📁 {BOLD}Pilih File Sumber Akun/Identitas:{RESET}")
+            file_options = []
+            if DEFAULT_ACCOUNTS_FILE.is_file():
+                file_options.append(DEFAULT_ACCOUNTS_FILE)
+            for p, _ in shopee_core.get_available_txt_files():
+                if p not in file_options and p.name not in ("requirements.txt", "valid_food.txt"):
+                    file_options.append(p)
+
+            if file_options:
+                for idx, fpath in enumerate(file_options, 1):
+                    print(f"  [{idx}] 📄 {fpath.name}")
+                print(f"  [{len(file_options) + 1}] ✍️  Ketik nama/path file lain")
+                choice = input(f"{WHITE}Pilih file [1-{len(file_options) + 1}] (Default 1): {RESET}").strip()
+                try:
+                    choice_idx = int(choice) if choice else 1
+                    if 1 <= choice_idx <= len(file_options):
+                        selected_file = file_options[choice_idx - 1]
+                except ValueError:
+                    pass
+
+            if not selected_file:
+                custom_file = input("Masukkan nama/path file akun: ").strip()
+                selected_file = Path(custom_file) if custom_file else DEFAULT_ACCOUNTS_FILE
+            break
+        else:
+            print(f"{YELLOW}⚠️ Pilihan tidak valid, silakan ketik 1 atau 2.{RESET}")
 
     # 3. Jalankan Klaim
-    await run_voucher_claim_mode(
-        accounts_file=selected_file,
-        voucher_links=current_links,
-        step_delay=4.0,
-        voucher_delay=2.0,
-    )
+    if claim_accounts:
+        await run_voucher_claim_mode(
+            accounts=claim_accounts,
+            voucher_links=current_links,
+            step_delay=4.0,
+            voucher_delay=2.0,
+        )
+    else:
+        await run_voucher_claim_mode(
+            accounts_file=selected_file,
+            voucher_links=current_links,
+            step_delay=4.0,
+            voucher_delay=2.0,
+        )
 
 
 if __name__ == "__main__":
