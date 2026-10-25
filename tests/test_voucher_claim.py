@@ -163,6 +163,38 @@ class TestVoucherClaimModule(unittest.IsolatedAsyncioTestCase):
             status, detail = voucher_claim.classify_claim_response(s)
             self.assertEqual(status, "TIDAK DIKETAHUI", f"Seharusnya TIDAK DIKETAHUI: {s}")
 
+    def test_is_intermediate_response(self):
+        # Respons perantara yang harus dikenali
+        intermediate_samples = [
+            "⏳ Klaim voucher...",
+            "⏳ Klaim voucher sedang diproses...",
+            "⌛ Memproses klaim...",
+            "Mohon tunggu, sedang memproses permintaan Anda...",
+            "Tunggu sebentar, sedang memproses...",
+            "Klaim voucher sedang diproses...",
+        ]
+        for s in intermediate_samples:
+            self.assertTrue(
+                voucher_claim.is_intermediate_response(s),
+                f"Seharusnya terdeteksi sebagai intermediate: {s}",
+            )
+            status, detail = voucher_claim.classify_claim_response(s)
+            self.assertEqual(status, "TIDAK DIKETAHUI")
+            self.assertIn("perantara", detail.lower())
+
+        # Respons final tidak boleh dideteksi sebagai intermediate
+        final_samples = [
+            "✅ Voucher berhasil diklaim ke akun",
+            "❌ Maaf, kamu belum memenuhi kriteria untuk klaim atau menggunakan voucher ini.",
+            "Gagal memproses klaim voucher.",
+            "Maaf, kuota voucher ini sudah habis hari ini.",
+        ]
+        for s in final_samples:
+            self.assertFalse(
+                voucher_claim.is_intermediate_response(s),
+                f"Tidak boleh terdeteksi sebagai intermediate: {s}",
+            )
+
     def test_sanitize_log_text_masks_credentials(self):
         raw = "Error hash: 1234567890abcdef1234567890abcdef with OTP 482910 and phone +6281234567890"
         cleaned = voucher_claim.sanitize_log_text(raw)
@@ -224,6 +256,44 @@ class TestVoucherClaimModule(unittest.IsolatedAsyncioTestCase):
             poll_interval=0.05,
         )
         self.assertIn("berhasil diklaim", resp)
+
+    async def test_wait_for_bot_final_response_edited_message(self):
+        client = AsyncMock()
+        call_count = 0
+
+        async def mock_get_messages(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Bot awalnya mengirim pesan loading dengan id 40
+                return [DummyMessage(40, "⏳ Klaim voucher...")]
+            # Bot mengedit pesan id 40 menjadi pesan final
+            return [DummyMessage(40, "❌ Maaf, kamu belum memenuhi kriteria untuk klaim atau menggunakan voucher ini.")]
+
+        client.get_messages.side_effect = mock_get_messages
+
+        resp = await voucher_claim.wait_for_bot_final_response(
+            client=client,
+            target_bot="@shp_tools_bot",
+            after_id=35,
+            timeout=2.0,
+            poll_interval=0.05,
+        )
+        self.assertIn("belum memenuhi kriteria", resp)
+
+    async def test_wait_for_bot_final_response_timeout_fallback(self):
+        client = AsyncMock()
+        # Bot hanya mengirim pesan loading dan tidak pernah mengirim pesan final
+        client.get_messages.return_value = [DummyMessage(50, "⏳ Klaim voucher...")]
+
+        resp = await voucher_claim.wait_for_bot_final_response(
+            client=client,
+            target_bot="@shp_tools_bot",
+            after_id=45,
+            timeout=0.1,
+            poll_interval=0.02,
+        )
+        self.assertEqual(resp, "⏳ Klaim voucher...")
 
     # 5. Penanganan Error Tombol Tidak Ditemukan / Timeout
     async def test_claim_voucher_missing_claim_button(self):

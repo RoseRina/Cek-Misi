@@ -127,6 +127,63 @@ def sanitize_log_text(text: str) -> str:
     return cleaned
 
 
+def is_intermediate_response(text: str) -> bool:
+    """Mengecek apakah teks respons bot merupakan pesan perantara / placeholder
+    yang masih dalam antrean / pemrosesan dan bukan hasil akhir klaim."""
+    raw_str = (text or "").strip()
+    if not raw_str:
+        return False
+    clean = " ".join(raw_str.casefold().split())
+    if not clean:
+        return False
+
+    # KECUALI jika mengandung kata hasil akhir:
+    final_indicators = (
+        "berhasil",
+        "gagal",
+        "maaf",
+        "tidak memenuhi",
+        "sudah diklaim",
+        "telah diklaim",
+        "kuota",
+        "expired",
+        "kadaluwarsa",
+        "kedaluwarsa",
+        "tidak ditemukan",
+        "tidak valid",
+        "failed",
+    )
+    if any(k in clean for k in final_indicators):
+        return False
+
+    # 1. Mengandung ⏳ atau ⌛
+    if "⏳" in raw_str or "⌛" in raw_str:
+        return True
+
+    # 2. Mengandung kata 'klaim' dan berakhir dengan '...' atau '…'
+    if "klaim" in clean and (clean.endswith("...") or clean.endswith("…")):
+        return True
+
+    # 3. Mengandung kata proses/tunggu/antre
+    intermediate_indicators = (
+        "memproses",
+        "sedang diproses",
+        "diproses",
+        "mohon tunggu",
+        "harap tunggu",
+        "tunggu sebentar",
+        "antre",
+        "antri",
+        "loading",
+        "processing",
+        "please wait",
+    )
+    if any(k in clean for k in intermediate_indicators):
+        return True
+
+    return False
+
+
 def classify_claim_response(text: str) -> Tuple[str, str]:
     """Mengklasifikasikan respons bot ke salah satu dari 3 kategori mutlak:
     1. 'BERHASIL'        : Klaim sukses diverifikasi
@@ -139,9 +196,8 @@ def classify_claim_response(text: str) -> Tuple[str, str]:
         return "TIDAK DIKETAHUI", "Bot tidak memberikan teks balasan"
 
     # 1. Deteksi pesan perantara / loading (tidak boleh dianggap sukses/gagal final)
-    loading_indicators = ("memproses", "sedang diproses", "mohon tunggu", "loading...")
-    if any(k in clean for k in loading_indicators) and not any(k in clean for k in ("berhasil", "gagal", "maaf")):
-        return "TIDAK DIKETAHUI", "Respons perantara bot (masih dalam proses)"
+    if is_intermediate_response(raw_str):
+        return "TIDAK DIKETAHUI", "Respons perantara bot (masih dalam proses, bukan hasil akhir)"
 
     has_negative_indicators = any(k in clean for k in ("tidak", "belum", "gagal", "bukan", "maaf", "❌", "failed"))
 
@@ -342,7 +398,7 @@ async def wait_for_bot_final_response(
     client,
     target_bot: str,
     after_id: int,
-    timeout: float = 15.0,
+    timeout: float = 30.0,
     poll_interval: float = 1.0,
 ) -> str:
     """Menunggu pesan respons akhir dari bot setelah pengiriman identitas akun."""
@@ -358,9 +414,7 @@ async def wait_for_bot_final_response(
             text = (getattr(msg, "text", "") or "").strip()
             if text:
                 latest_text = text
-                lower_t = text.casefold()
-                is_loading = any(w in lower_t for w in ("memproses", "sedang diproses", "mohon tunggu", "loading..."))
-                if not is_loading:
+                if not is_intermediate_response(text):
                     return text
         await asyncio.sleep(poll_interval)
     return latest_text
@@ -371,7 +425,7 @@ async def claim_voucher_for_account(
     account_identity: str,
     voucher_link: str,
     target_bot: str = DEFAULT_BOT,
-    timeout: float = 15.0,
+    timeout: float = 30.0,
 ) -> Tuple[str, str, str]:
     """Menjalankan alur klaim voucher untuk 1 akun ke @shp_tools_bot:
     1. Kirim /account
@@ -469,7 +523,7 @@ async def run_voucher_claim_mode(
     step_delay: float = 4.0,
     output_file: Union[str, Path] = DEFAULT_OUTPUT_FILE,
     target_bot: str = DEFAULT_BOT,
-    timeout: float = 15.0,
+    timeout: float = 30.0,
 ) -> dict:
     """Menjalankan antrean proses klaim voucher ShopeeFood secara berurutan."""
     out_file = Path(output_file)
