@@ -38,6 +38,11 @@ DEFAULT_VOUCHER_LINK = (
     "https://shopee.co.id/voucher/details?evcode=NEWFOODIES&infocuan&"
     "promotionId=1535384308957184&signature=9d5740e39dedc95c5aeb12ae7ed5455e1163bcbb2f659624052c33b633baf853"
 )
+DEFAULT_VOUCHER_LINK_2 = (
+    "https://shopee.co.id/voucher/details?evcode=ONGKIRGRATIS&infocuan&"
+    "promotionId=1535384308826112&signature=b675a8f1d1b61eb8bec9d565cfe99871b7d45c8aef6bb88dc0d7a5c8f1372205"
+)
+DEFAULT_VOUCHER_LINKS = [DEFAULT_VOUCHER_LINK, DEFAULT_VOUCHER_LINK_2]
 DEFAULT_ACCOUNTS_FILE = Path("accounts.txt")
 DEFAULT_OUTPUT_FILE = Path("bot_responses.txt")
 CONFIG_CLAIM_FILE = Path("voucher_claim_config.json")
@@ -49,39 +54,84 @@ def check_telegram_credentials_configured() -> bool:
     return bool(api_id and api_hash)
 
 
-def load_voucher_claim_config() -> str:
-    """Mengambil tautan voucher tersimpan dari environment atau file konfigurasi lokal."""
-    # 1. Cek environment variable
-    env_link = os.environ.get("SHOPEE_VOUCHER_LINK", "").strip()
-    if env_link:
-        return env_link
+def load_voucher_claim_configs(config_file: Optional[Union[str, Path]] = None) -> List[str]:
+    """Mengambil daftar tautan voucher tersimpan dari environment atau file konfigurasi lokal.
 
-    # 2. Cek file konfigurasi JSON lokal
-    if CONFIG_CLAIM_FILE.is_file():
+    Format file baru: {"voucher_links": [link1, link2]}
+    Kompatibilitas mundur: jika file lama hanya {"voucher_link": "..."}, jadikan voucher 1
+    dan padukan dengan default voucher 2 (ONGKIRGRATIS).
+    Jika SHOPEE_VOUCHER_LINK ada di env, itu menggantikan voucher 1 saja.
+    """
+    cfg_path = Path(config_file) if config_file else CONFIG_CLAIM_FILE
+    links: List[str] = []
+
+    if cfg_path.is_file():
         try:
-            data = json.loads(CONFIG_CLAIM_FILE.read_text(encoding="utf-8"))
-            link = data.get("voucher_link", "").strip()
-            if link:
-                return link
+            data = json.loads(cfg_path.read_text(encoding="utf-8"))
+            if isinstance(data.get("voucher_links"), list) and data["voucher_links"]:
+                links = [str(x).strip() for x in data["voucher_links"] if str(x).strip()]
+            elif "voucher_link" in data:
+                old_link = str(data.get("voucher_link", "")).strip()
+                if old_link:
+                    links = [old_link, DEFAULT_VOUCHER_LINK_2]
         except Exception:
             pass
 
-    return DEFAULT_VOUCHER_LINK
+    if not links:
+        links = [DEFAULT_VOUCHER_LINK, DEFAULT_VOUCHER_LINK_2]
+
+    # Environment variable SHOPEE_VOUCHER_LINK menggantikan voucher 1 saja
+    env_link = os.environ.get("SHOPEE_VOUCHER_LINK", "").strip()
+    if env_link:
+        if links:
+            links[0] = env_link
+        else:
+            links = [env_link, DEFAULT_VOUCHER_LINK_2]
+
+    return links
 
 
-def save_voucher_claim_config(voucher_link: str) -> bool:
-    """Menyimpan tautan voucher ke file konfigurasi lokal agar tidak perlu diketik berulang."""
-    clean_link = (voucher_link or "").strip()
-    if not clean_link:
+def save_voucher_claim_configs(
+    voucher_links: List[str],
+    config_file: Optional[Union[str, Path]] = None,
+) -> bool:
+    """Menyimpan daftar tautan voucher ke file konfigurasi lokal dengan format baru {"voucher_links": [link1, link2]}."""
+    clean_links = [str(l).strip() for l in voucher_links if str(l).strip()]
+    if not clean_links:
         return False
+
+    cfg_path = Path(config_file) if config_file else CONFIG_CLAIM_FILE
     try:
-        CONFIG_CLAIM_FILE.write_text(
-            json.dumps({"voucher_link": clean_link}, indent=2),
+        data = {
+            "voucher_links": clean_links,
+            "voucher_link": clean_links[0],
+        }
+        cfg_path.write_text(
+            json.dumps(data, indent=2),
             encoding="utf-8",
         )
         return True
     except Exception:
         return False
+
+
+def load_voucher_claim_config(config_file: Optional[Union[str, Path]] = None) -> str:
+    """Mengambil tautan voucher 1 tersimpan (wrapper kompatibilitas mundur)."""
+    configs = load_voucher_claim_configs(config_file=config_file)
+    return configs[0] if configs else DEFAULT_VOUCHER_LINK
+
+
+def save_voucher_claim_config(
+    voucher_link: str,
+    config_file: Optional[Union[str, Path]] = None,
+) -> bool:
+    """Menyimpan tautan voucher 1 ke file konfigurasi lokal (wrapper kompatibilitas mundur)."""
+    clean_link = (voucher_link or "").strip()
+    if not clean_link:
+        return False
+    current_configs = load_voucher_claim_configs(config_file=config_file)
+    v2 = current_configs[1] if len(current_configs) > 1 else DEFAULT_VOUCHER_LINK_2
+    return save_voucher_claim_configs([clean_link, v2], config_file=config_file)
 
 
 def read_claim_accounts(file_path: Union[str, Path]) -> Tuple[List[str], int]:
@@ -266,12 +316,25 @@ def classify_claim_response(text: str) -> Tuple[str, str]:
     return "TIDAK DIKETAHUI", f"Respons bot tidak dikenal: {snippet}"
 
 
+def get_voucher_label(link: str, index: int = 0) -> str:
+    """Mengembalikan label deskriptif untuk tautan voucher."""
+    lower = (link or "").casefold()
+    if "newfoodies" in lower:
+        return "Diskon NewFoodies"
+    elif "ongkir" in lower:
+        return "Ongkir Gratis"
+    elif "diskon" in lower or "food" in lower:
+        return "Diskon Food"
+    return f"Voucher {index + 1}"
+
+
 def save_claim_result(
     account: str,
     status: str,
     detail: str,
     raw_response: str,
     output_file: Union[str, Path] = DEFAULT_OUTPUT_FILE,
+    voucher_label: Optional[str] = None,
 ):
     """Menyimpan hasil klaim voucher secara bertahap (incremental append) ke file output
     dengan menyaring informasi sensitif."""
@@ -283,7 +346,8 @@ def save_claim_result(
         clean_resp = clean_resp[:197] + "..."
 
     sanitized_acc = sanitize_log_text(account or "-")
-    line = f"[{now_str}] [{sanitized_acc}] [{status}] {detail} | Respons: {clean_resp or '-'}\n"
+    v_tag = f" [{voucher_label}]" if voucher_label else ""
+    line = f"[{now_str}] [{sanitized_acc}]{v_tag} [{status}] {detail} | Respons: {clean_resp or '-'}\n"
     try:
         with out_path.open("a", encoding="utf-8") as f:
             f.write(line)
@@ -520,18 +584,30 @@ async def run_voucher_claim_mode(
     accounts: Optional[List[str]] = None,
     accounts_file: Optional[Union[str, Path]] = None,
     voucher_link: Optional[str] = None,
+    voucher_links: Optional[List[str]] = None,
     step_delay: float = 4.0,
+    voucher_delay: float = 2.0,
     output_file: Union[str, Path] = DEFAULT_OUTPUT_FILE,
     target_bot: str = DEFAULT_BOT,
     timeout: float = 30.0,
 ) -> dict:
-    """Menjalankan antrean proses klaim voucher ShopeeFood secara berurutan."""
+    """Menjalankan antrean proses klaim voucher ShopeeFood secara berurutan.
+
+    Mendukung klaim multiple voucher (contoh: Voucher Diskon + Voucher Ongkir Gratis)
+    secara berurutan per username.
+    """
     out_file = Path(output_file)
 
     # 1. Validasi Tautan Voucher
-    active_voucher_link = (voucher_link or load_voucher_claim_config()).strip()
-    if not active_voucher_link:
-        active_voucher_link = DEFAULT_VOUCHER_LINK
+    if voucher_links:
+        active_voucher_links = [str(l).strip() for l in voucher_links if str(l).strip()]
+    elif voucher_link:
+        active_voucher_links = [voucher_link.strip()]
+    else:
+        active_voucher_links = load_voucher_claim_configs()
+
+    if not active_voucher_links:
+        active_voucher_links = [DEFAULT_VOUCHER_LINK, DEFAULT_VOUCHER_LINK_2]
 
     # 2. Ambil Daftar Akun
     if accounts is None:
@@ -553,8 +629,11 @@ async def run_voucher_claim_mode(
     print(f"🎟️ {BOLD}MEMULAI PROSES KLAIM VOUCHER SHOPEEFOOD{RESET}")
     print(f"{CYAN}===================================================={RESET}")
     print(f"🎯 Target Bot   : {BOLD}{target_bot}{RESET}")
-    print(f"🔗 Tautan       : {active_voucher_link[:65]}...")
-    print(f"📋 Total Akun   : {BOLD}{total} akun/identitas{RESET}")
+    for i, v_l in enumerate(active_voucher_links, 1):
+        lbl = get_voucher_label(v_l, i - 1)
+        print(f"🔗 Voucher {i}    : [{lbl}] {v_l[:55]}...")
+    v_note = f" ({len(active_voucher_links)} voucher per akun)" if len(active_voucher_links) > 1 else ""
+    print(f"📋 Total Akun   : {BOLD}{total} akun/identitas{v_note}{RESET}")
     print(f"📂 File Output  : {out_file.name}")
     print(f"{CYAN}----------------------------------------------------{RESET}\n")
 
@@ -576,44 +655,141 @@ async def run_voucher_claim_mode(
             bar = shopee_core.render_progress_bar(idx, total)
             print(f"{CYAN}{bar}{RESET} {BOLD}{acc}{RESET}")
 
-            try:
-                status, detail, raw_resp = await claim_voucher_for_account(
-                    client=client,
-                    account_identity=acc,
-                    voucher_link=active_voucher_link,
-                    target_bot=target_bot,
-                    timeout=timeout,
-                )
-                save_claim_result(acc, status, detail, raw_resp, output_file=out_file)
-                completed_count += 1
+            acc_statuses = []
+            acc_details = []
+            acc_vouchers_results = []
+            hit_floodwait = False
 
-                if status == "BERHASIL":
-                    print(f"  └─ {GREEN}{BOLD}✅ {status}: {detail}{RESET}\n")
-                    success_count += 1
-                elif status == "GAGAL":
-                    print(f"  └─ {RED}❌ {status}: {detail}{RESET}\n")
-                    fail_count += 1
-                else:
-                    print(f"  └─ {YELLOW}❓ {status}: {detail}{RESET}\n")
-                    unknown_count += 1
+            for v_idx, v_url in enumerate(active_voucher_links, 1):
+                v_label = get_voucher_label(v_url, v_idx - 1)
+                is_last_v = (v_idx == len(active_voucher_links))
+                tree_prefix = "  └─" if (is_last_v and len(active_voucher_links) == 1) else ("  ├─" if not is_last_v else "  └─")
 
-                results.append({"account": acc, "status": status, "detail": detail, "response": raw_resp})
+                if len(active_voucher_links) > 1:
+                    print(f"{tree_prefix} [{v_idx}/{len(active_voucher_links)}] 🎟️ {BOLD}{v_label}{RESET}...")
 
-            except FloodWaitError as exc:
-                msg = f"Telegram FloodWait {exc.seconds}s. Antrean dihentikan."
-                save_claim_result(acc, "TIDAK DIKETAHUI", msg, str(exc), output_file=out_file)
-                completed_count += 1
+                try:
+                    status, detail, raw_resp = await claim_voucher_for_account(
+                        client=client,
+                        account_identity=acc,
+                        voucher_link=v_url,
+                        target_bot=target_bot,
+                        timeout=timeout,
+                    )
+                    v_tag = f"Voucher {v_idx}: {v_label}" if len(active_voucher_links) > 1 else ""
+                    save_claim_result(
+                        acc,
+                        status,
+                        detail,
+                        raw_resp,
+                        output_file=out_file,
+                        voucher_label=v_tag,
+                    )
+                    acc_statuses.append(status)
+                    acc_details.append(detail)
+                    acc_vouchers_results.append({
+                        "voucher_index": v_idx,
+                        "voucher_label": v_label,
+                        "voucher_link": v_url,
+                        "status": status,
+                        "detail": detail,
+                        "response": raw_resp,
+                    })
+
+                    indent = "  │  └─ " if (not is_last_v and len(active_voucher_links) > 1) else ("     └─ " if len(active_voucher_links) > 1 else "  └─ ")
+                    if status == "BERHASIL":
+                        print(f"{indent}{GREEN}{BOLD}✅ {status}: {detail}{RESET}")
+                    elif status == "GAGAL":
+                        print(f"{indent}{RED}❌ {status}: {detail}{RESET}")
+                    else:
+                        print(f"{indent}{YELLOW}❓ {status}: {detail}{RESET}")
+
+                except FloodWaitError as exc:
+                    msg = f"Telegram FloodWait {exc.seconds}s. Antrean dihentikan."
+                    v_tag = f"Voucher {v_idx}: {v_label}" if len(active_voucher_links) > 1 else ""
+                    save_claim_result(
+                        acc,
+                        "TIDAK DIKETAHUI",
+                        msg,
+                        str(exc),
+                        output_file=out_file,
+                        voucher_label=v_tag,
+                    )
+                    acc_statuses.append("TIDAK DIKETAHUI")
+                    acc_details.append(msg)
+                    acc_vouchers_results.append({
+                        "voucher_index": v_idx,
+                        "voucher_label": v_label,
+                        "voucher_link": v_url,
+                        "status": "TIDAK DIKETAHUI",
+                        "detail": msg,
+                        "response": str(exc),
+                    })
+                    indent = "     └─ " if len(active_voucher_links) > 1 else "  └─ "
+                    print(f"{indent}{RED}⚠️ FloodWait {exc.seconds}s! Antrean dihentikan demi keamanan.{RESET}\n")
+                    hit_floodwait = True
+                    break
+                except Exception as exc:
+                    err_msg = f"Error: {exc}"
+                    v_tag = f"Voucher {v_idx}: {v_label}" if len(active_voucher_links) > 1 else ""
+                    save_claim_result(
+                        acc,
+                        "TIDAK DIKETAHUI",
+                        err_msg,
+                        str(exc),
+                        output_file=out_file,
+                        voucher_label=v_tag,
+                    )
+                    acc_statuses.append("TIDAK DIKETAHUI")
+                    acc_details.append(err_msg)
+                    acc_vouchers_results.append({
+                        "voucher_index": v_idx,
+                        "voucher_label": v_label,
+                        "voucher_link": v_url,
+                        "status": "TIDAK DIKETAHUI",
+                        "detail": err_msg,
+                        "response": str(exc),
+                    })
+                    indent = "     └─ " if len(active_voucher_links) > 1 else "  └─ "
+                    print(f"{indent}{RED}❌ Error: {exc}{RESET}")
+
+                if not is_last_v:
+                    await asyncio.sleep(voucher_delay)
+
+            # Selesai satu akun
+            print()
+            completed_count += 1
+
+            if hit_floodwait:
+                final_acc_status = "TIDAK DIKETAHUI"
+                final_acc_detail = "Dihentikan karena FloodWait Telegram"
                 unknown_count += 1
-                results.append({"account": acc, "status": "TIDAK DIKETAHUI", "detail": msg, "response": str(exc)})
-                print(f"  └─ {RED}⚠️ FloodWait {exc.seconds}s! Antrean dihentikan demi keamanan.{RESET}\n")
+            elif all(s == "BERHASIL" for s in acc_statuses):
+                final_acc_status = "BERHASIL"
+                final_acc_detail = "Semua voucher berhasil diklaim"
+                success_count += 1
+            elif any(s == "BERHASIL" for s in acc_statuses):
+                final_acc_status = "BERHASIL"
+                final_acc_detail = f"Sebagian voucher berhasil diklaim ({acc_statuses.count('BERHASIL')}/{len(acc_statuses)})"
+                success_count += 1
+            elif any(s == "TIDAK DIKETAHUI" for s in acc_statuses):
+                final_acc_status = "TIDAK DIKETAHUI"
+                final_acc_detail = "Respons perantara atau bot tidak dikenal"
+                unknown_count += 1
+            else:
+                final_acc_status = "GAGAL"
+                final_acc_detail = "Gagal mengklaim voucher"
+                fail_count += 1
+
+            results.append({
+                "account": acc,
+                "status": final_acc_status,
+                "detail": final_acc_detail,
+                "vouchers": acc_vouchers_results,
+            })
+
+            if hit_floodwait:
                 break
-            except Exception as exc:
-                err_msg = f"Error: {exc}"
-                save_claim_result(acc, "TIDAK DIKETAHUI", err_msg, str(exc), output_file=out_file)
-                completed_count += 1
-                unknown_count += 1
-                results.append({"account": acc, "status": "TIDAK DIKETAHUI", "detail": err_msg, "response": str(exc)})
-                print(f"  └─ {RED}❌ Error: {exc}{RESET}\n")
 
             if idx < total:
                 await asyncio.sleep(step_delay)
@@ -652,17 +828,40 @@ async def interactive_voucher_claim_menu():
     print(f"🎟️ {BOLD}MENU KLAIM VOUCHER SHOPEEFOOD (@shp_tools_bot){RESET}")
     print(f"{CYAN}===================================================={RESET}")
 
-    # 1. Konfigurasi Tautan Voucher
-    current_link = load_voucher_claim_config()
-    print(f"\n🔗 {BOLD}Tautan Voucher Saat Ini:{RESET}")
-    print(f"   {CYAN}{current_link}{RESET}")
-    ubah = input(f"{WHITE}Ingin mengganti tautan voucher? (y/N): {RESET}").strip().casefold()
-    if ubah in ("y", "ya", "yes"):
-        new_link = input("Masukkan tautan voucher baru: ").strip()
-        if new_link:
-            save_voucher_claim_config(new_link)
-            current_link = new_link
-            print(f"{GREEN}✅ Tautan voucher berhasil diperbarui!{RESET}")
+    # 1. Konfigurasi Tautan Voucher (2 Voucher: Diskon & Ongkir Gratis)
+    current_links = load_voucher_claim_configs()
+    v1 = current_links[0] if len(current_links) > 0 else DEFAULT_VOUCHER_LINK
+    v2 = current_links[1] if len(current_links) > 1 else DEFAULT_VOUCHER_LINK_2
+
+    print(f"\n🔗 {BOLD}Tautan Voucher yang Akan Diklaim Berurutan per Akun:{RESET}")
+    print(f"   1. 🏷️  {BOLD}Voucher Diskon{RESET}        : {CYAN}{v1}{RESET}")
+    print(f"   2. 🚚 {BOLD}Voucher Ongkir Gratis{RESET} : {CYAN}{v2}{RESET}")
+    print(f"   {WHITE}💡 Setiap akun akan diklaimkan 2 voucher ini secara otomatis.{RESET}")
+
+    ubah = input(f"\n{WHITE}Ingin mengganti tautan voucher? [1/2/Semua/N] (Default N): {RESET}").strip().casefold()
+    if ubah in ("1",):
+        new_v1 = input("Masukkan tautan Voucher 1 (Diskon): ").strip()
+        if new_v1:
+            v1 = new_v1
+            save_voucher_claim_configs([v1, v2])
+            print(f"{GREEN}✅ Tautan Voucher 1 berhasil diperbarui!{RESET}")
+    elif ubah in ("2",):
+        new_v2 = input("Masukkan tautan Voucher 2 (Ongkir Gratis): ").strip()
+        if new_v2:
+            v2 = new_v2
+            save_voucher_claim_configs([v1, v2])
+            print(f"{GREEN}✅ Tautan Voucher 2 berhasil diperbarui!{RESET}")
+    elif ubah in ("s", "semua", "y", "ya", "yes", "all", "a"):
+        new_v1 = input("Tautan Voucher 1 [Enter untuk tetap]: ").strip()
+        if new_v1:
+            v1 = new_v1
+        new_v2 = input("Tautan Voucher 2 [Enter untuk tetap]: ").strip()
+        if new_v2:
+            v2 = new_v2
+        save_voucher_claim_configs([v1, v2])
+        print(f"{GREEN}✅ Kedua tautan voucher berhasil diperbarui!{RESET}")
+
+    current_links = [v1, v2]
 
     # 2. Pemilihan File Sumber Akun
     print(f"\n📁 {BOLD}Pilih File Sumber Akun/Identitas:{RESET}")
@@ -693,8 +892,9 @@ async def interactive_voucher_claim_menu():
     # 3. Jalankan Klaim
     await run_voucher_claim_mode(
         accounts_file=selected_file,
-        voucher_link=current_link,
+        voucher_links=current_links,
         step_delay=4.0,
+        voucher_delay=2.0,
     )
 
 

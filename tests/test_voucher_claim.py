@@ -447,16 +447,95 @@ class TestVoucherClaimModule(unittest.IsolatedAsyncioTestCase):
         self.assertIn("7. 🎟️ Klaim Voucher ShopeeFood", clean_banner)
         self.assertIn("0. 🚪 Keluar", clean_banner)
 
+    def test_voucher_config_dual_save_and_load(self):
+        cfg_file = self.dir_path / "voucher_claim_config.json"
+        with patch("voucher_claim.CONFIG_CLAIM_FILE", cfg_file):
+            with patch.dict(os.environ, {}, clear=True):
+                # Sebelum ada file, return default 2 link
+                links = voucher_claim.load_voucher_claim_configs()
+                self.assertEqual(len(links), 2)
+                self.assertIn("evcode=NEWFOODIES", links[0])
+                self.assertIn("evcode=ONGKIRGRATIS", links[1])
+
+                # Simpan 2 link baru
+                link1 = "https://shopee.co.id/voucher/details?evcode=CUSTOM_DISCOUNT"
+                link2 = "https://shopee.co.id/voucher/details?evcode=CUSTOM_ONGKIR"
+                saved = voucher_claim.save_voucher_claim_configs([link1, link2])
+                self.assertTrue(saved)
+                self.assertTrue(cfg_file.exists())
+
+                # Baca kembali
+                loaded = voucher_claim.load_voucher_claim_configs()
+                self.assertEqual(loaded, [link1, link2])
+
+    def test_voucher_config_legacy_migration(self):
+        cfg_file = self.dir_path / "voucher_claim_config.json"
+        # Simpan format lama {"voucher_link": "..."}
+        old_format = '{"voucher_link": "https://shopee.co.id/voucher/details?evcode=OLD_SINGLE"}'
+        cfg_file.write_text(old_format, encoding="utf-8")
+
+        with patch("voucher_claim.CONFIG_CLAIM_FILE", cfg_file):
+            with patch.dict(os.environ, {}, clear=True):
+                loaded = voucher_claim.load_voucher_claim_configs()
+                self.assertEqual(len(loaded), 2)
+                self.assertIn("OLD_SINGLE", loaded[0])
+                self.assertIn("evcode=ONGKIRGRATIS", loaded[1])
+
+    async def test_run_voucher_claim_mode_sequential_two_vouchers(self):
+        client = AsyncMock()
+        out_file = self.dir_path / "test_bot_responses_multi.txt"
+        accounts = ["user_seq_1"]
+        called_links = []
+
+        async def mock_claim(client, account_identity, voucher_link, *args, **kwargs):
+            called_links.append((account_identity, voucher_link))
+            if "NEWFOODIES" in voucher_link:
+                return "BERHASIL", "Voucher diskon berhasil diklaim", "OK_DISC"
+            else:
+                return "GAGAL", "❌ Maaf, kamu belum memenuhi kriteria", "FAIL_ONGKIR"
+
+        with patch("voucher_claim.claim_voucher_for_account", side_effect=mock_claim):
+            with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+                with patch("sys.stdout", new=StringIO()):
+                    stats = await voucher_claim.run_voucher_claim_mode(
+                        client=client,
+                        accounts=accounts,
+                        voucher_links=[
+                            voucher_claim.DEFAULT_VOUCHER_LINK,
+                            voucher_claim.DEFAULT_VOUCHER_LINK_2,
+                        ],
+                        output_file=out_file,
+                        step_delay=0.01,
+                        voucher_delay=0.01,
+                    )
+
+        # Harus dipanggil 2 kali secara berurutan untuk 1 akun
+        self.assertEqual(len(called_links), 2)
+        self.assertEqual(called_links[0][0], "user_seq_1")
+        self.assertIn("NEWFOODIES", called_links[0][1])
+        self.assertEqual(called_links[1][0], "user_seq_1")
+        self.assertIn("ONGKIRGRATIS", called_links[1][1])
+
+        # Periksa output file
+        saved_text = out_file.read_text(encoding="utf-8")
+        self.assertIn("[Voucher 1: Diskon NewFoodies]", saved_text)
+        self.assertIn("[Voucher 2: Ongkir Gratis]", saved_text)
+        self.assertIn("BERHASIL", saved_text)
+        self.assertIn("GAGAL", saved_text)
+
     def test_cli_argument_parsing_claim_mode(self):
         with patch("sys.argv", ["cek_misi_termux.py", "--mode", "claim", "--voucher-link", "https://shopee.co.id/voucher/custom"]):
             parser = argparse.ArgumentParser()
             parser.add_argument("file", nargs="?", default=None)
             parser.add_argument("--mode", choices=["misi", "food", "both", "claim"])
             parser.add_argument("--voucher-link")
-            args = parser.parse_args(["--mode", "claim", "--voucher-link", "https://shopee.co.id/voucher/custom"])
+            parser.add_argument("--voucher-link-2")
+            args = parser.parse_args(["--mode", "claim", "--voucher-link", "https://shopee.co.id/voucher/custom", "--voucher-link-2", "https://shopee.co.id/voucher/custom2"])
             self.assertEqual(args.mode, "claim")
             self.assertEqual(args.voucher_link, "https://shopee.co.id/voucher/custom")
+            self.assertEqual(args.voucher_link_2, "https://shopee.co.id/voucher/custom2")
 
 
 if __name__ == "__main__":
     unittest.main()
+

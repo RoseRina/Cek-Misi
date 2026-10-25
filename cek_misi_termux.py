@@ -499,7 +499,8 @@ async def main():
     parser = argparse.ArgumentParser(description="Shopee Tools Bot All-in-One (Termux & PC)")
     parser.add_argument("file", nargs="?", default=None, help="File berisi daftar username atau raw cookie Shopee")
     parser.add_argument("--mode", choices=["misi", "food", "both", "claim"], help="Pilih mode: misi | food | both | claim")
-    parser.add_argument("--voucher-link", help="Tautan voucher untuk klaim (mode claim)")
+    parser.add_argument("--voucher-link", help="Tautan voucher 1 (diskon) untuk klaim (mode claim)")
+    parser.add_argument("--voucher-link-2", help="Tautan voucher 2 (ongkir gratis) untuk klaim (mode claim)")
     parser.add_argument("--method", choices=["username", "cookie", "auto"], default=None, help="Metode login bot: username | cookie | auto")
     parser.add_argument("--cookie", action="store_true", help="Gunakan mode Raw Cookie langsung")
     parser.add_argument("--single", help="Cek 1 akun secara langsung tanpa menu")
@@ -537,10 +538,15 @@ async def main():
             elif mode == "both":
                 await run_both_mode(client, usernames, auth_method=eff_method, step_delay=args.delay)
             elif mode == "claim":
+                v_links = None
+                if getattr(args, "voucher_link", None):
+                    v_links = [args.voucher_link]
+                    if getattr(args, "voucher_link_2", None):
+                        v_links.append(args.voucher_link_2)
                 await voucher_claim.run_voucher_claim_mode(
                     client=client,
                     accounts=usernames,
-                    voucher_link=args.voucher_link,
+                    voucher_links=v_links,
                     step_delay=args.delay,
                 )
         finally:
@@ -694,10 +700,15 @@ async def main():
             elif selected_mode == "both":
                 await run_both_mode(client, usernames, auth_method=auth_method, step_delay=delay)
             elif selected_mode == "claim":
+                v_links = None
+                if getattr(args, "voucher_link", None):
+                    v_links = [args.voucher_link]
+                    if getattr(args, "voucher_link_2", None):
+                        v_links.append(args.voucher_link_2)
                 await voucher_claim.run_voucher_claim_mode(
                     client=client,
                     accounts=usernames,
-                    voucher_link=getattr(args, "voucher_link", None),
+                    voucher_links=v_links,
                     step_delay=delay,
                 )
         finally:
