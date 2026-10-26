@@ -33,11 +33,13 @@ RESULTS_MISI_FILE = Path("hasil_cek_misi.csv")
 RESULTS_FOOD_FILE = Path("hasil_voucher_food.csv")
 RESULTS_ALL_FILE = Path("hasil_gabungan.csv")
 RESULTS_GANTI_NOMOR_FILE = Path("hasil_ganti_nomor.csv")
+RESULTS_CLAIM_FILE = Path("hasil_klaim.csv")
 VALID_FOOD_FILE = Path("valid_food.txt")
 RESULTS_MISI_TXT = Path("hasil_cek_misi.txt")
 RESULTS_FOOD_TXT = Path("hasil_voucher_food.txt")
 RESULTS_ALL_TXT = Path("hasil_gabungan.txt")
 RESULTS_GANTI_NOMOR_TXT = Path("hasil_ganti_nomor.txt")
+RESULTS_CLAIM_TXT = Path("bot_responses.txt")
 REEDEM_GANTI_NOMOR_TXT = Path("reedem_gantinomor.txt")
 DISKON_25K_TXT = Path("diskon_25rb.txt")
 MISI_SELESAI_TXT = Path("misi_selesai.txt")
@@ -378,6 +380,12 @@ def get_checked_accounts_records(mode: str = "misi") -> Dict[str, Dict[str, Any]
         target_csv = RESULTS_ALL_FILE
     elif mode == "ganti_nomor":
         target_csv = RESULTS_GANTI_NOMOR_FILE
+    elif mode == "claim":
+        try:
+            import voucher_claim
+            return voucher_claim.get_checked_claim_records()
+        except Exception:
+            return {}
 
     if target_csv and target_csv.is_file():
         try:
@@ -486,12 +494,22 @@ def handle_reuse_or_recheck_wizard(
     if not usernames:
         return "proceed", [], [], set()
 
+    if mode == "claim":
+        import voucher_claim
+        action, to_proc, reused, recheck, _ = voucher_claim.handle_claim_reuse_wizard(
+            usernames=usernames,
+            auth_method=auth_method,
+            auto_mode=auto_mode,
+        )
+        return action, to_proc, reused, recheck
+
     records = get_checked_accounts_records(mode)
     csv_name = {
         "misi": RESULTS_MISI_FILE.name,
         "food": RESULTS_FOOD_FILE.name,
         "both": RESULTS_ALL_FILE.name,
         "ganti_nomor": RESULTS_GANTI_NOMOR_FILE.name,
+        "claim": RESULTS_CLAIM_FILE.name,
     }.get(mode, "CSV")
 
     success_accounts = []

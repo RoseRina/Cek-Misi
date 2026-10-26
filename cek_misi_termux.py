@@ -919,6 +919,7 @@ async def main():
 
     reused_records = []
     recheck_targets = set()
+    account_vouchers_plan = None
 
     # Loop pemilihan akun & penanganan resume/reuse
     while True:
@@ -953,37 +954,70 @@ async def main():
         if not usernames:
             return
 
-        # Opsi Auto-Resume / Reuse hasil sebelumnya jika dalam mode bulk dan bukan claim
-        if is_bulk and len(usernames) > 1 and selected_mode != "claim":
-            action, to_proc, reused, recheck_accs = shopee_core.handle_reuse_or_recheck_wizard(
-                usernames=usernames,
-                mode=selected_mode,
-                auth_method=auth_method,
-                auto_mode="reuse" if auto_resume else None,
-            )
-            if action == "back":
-                print(f"\n{YELLOW}↩️ Kembali ke pemilihan sumber akun...{RESET}")
-                usernames = None
-                continue
-            elif action == "finish":
-                # Pengguna memilih selesai, tampilkan laporan gabungan langsung
-                shopee_core.print_combined_execution_summary(
-                    mode=selected_mode,
-                    total_all=len(usernames),
-                    total_processed=0,
-                    new_success=0,
-                    new_fail=0,
-                    new_error=0,
-                    reused_records=reused,
-                    preserved_records=[],
+        # Opsi Auto-Resume / Reuse hasil sebelumnya jika dalam mode bulk
+        if is_bulk and len(usernames) > 1:
+            if selected_mode == "claim":
+                v_links = None
+                if getattr(args, "voucher_link", None):
+                    v_links = [args.voucher_link]
+                    if getattr(args, "voucher_link_2", None):
+                        v_links.append(args.voucher_link_2)
+                action, to_proc, reused, recheck_accs, plan = voucher_claim.handle_claim_reuse_wizard(
+                    usernames=usernames,
+                    voucher_links=v_links,
                     auth_method=auth_method,
+                    auto_mode="reuse" if auto_resume else None,
                 )
-                return
+                if action == "back":
+                    print(f"\n{YELLOW}↩️ Kembali ke pemilihan sumber akun...{RESET}")
+                    usernames = None
+                    continue
+                elif action == "finish":
+                    voucher_claim.print_claim_combined_summary(
+                        total_accounts=len(usernames),
+                        total_tasks=len(usernames) * 2,
+                        newly_results=[],
+                        reused_records=reused,
+                        preserved_records=[],
+                        auth_method=auth_method,
+                    )
+                    return
+                else:
+                    usernames = to_proc
+                    reused_records = reused
+                    recheck_targets = recheck_accs
+                    account_vouchers_plan = plan
+                    break
             else:
-                usernames = to_proc
-                reused_records = reused
-                recheck_targets = recheck_accs
-                break
+                action, to_proc, reused, recheck_accs = shopee_core.handle_reuse_or_recheck_wizard(
+                    usernames=usernames,
+                    mode=selected_mode,
+                    auth_method=auth_method,
+                    auto_mode="reuse" if auto_resume else None,
+                )
+                if action == "back":
+                    print(f"\n{YELLOW}↩️ Kembali ke pemilihan sumber akun...{RESET}")
+                    usernames = None
+                    continue
+                elif action == "finish":
+                    # Pengguna memilih selesai, tampilkan laporan gabungan langsung
+                    shopee_core.print_combined_execution_summary(
+                        mode=selected_mode,
+                        total_all=len(usernames),
+                        total_processed=0,
+                        new_success=0,
+                        new_fail=0,
+                        new_error=0,
+                        reused_records=reused,
+                        preserved_records=[],
+                        auth_method=auth_method,
+                    )
+                    return
+                else:
+                    usernames = to_proc
+                    reused_records = reused
+                    recheck_targets = recheck_accs
+                    break
         else:
             break
 
@@ -1080,6 +1114,9 @@ async def main():
                     accounts=usernames,
                     voucher_links=v_links,
                     step_delay=delay,
+                    reused_records=reused_records,
+                    recheck_targets=recheck_targets,
+                    account_vouchers_plan=account_vouchers_plan,
                 )
         finally:
             await client.disconnect()
