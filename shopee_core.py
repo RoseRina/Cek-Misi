@@ -1111,12 +1111,18 @@ def is_bot_intermediate_reply(text: str) -> bool:
     if not clean:
         return True
 
+    # Prioritas utama: jika pesan sudah memuat informasi / daftar misi bot, JANGAN dianggap perantara!
+    if any(m in clean for m in ("bayar qris", "misi checkin", "misi check-in", "misi check in", "claim misi", "misi shopeepay")):
+        return False
+
     # 1. Pesan prompt input akun / cookie / link (bukan hasil evaluasi akhir)
     prompt_indicators = (
         "masukkan email",
         "kirim email",
         "masukkan username",
         "kirim username",
+        "silakan kirim",
+        "silahkan kirim",
         "masukkan id",
         "kirim id",
         "masukkan cookie",
@@ -1144,6 +1150,13 @@ def is_bot_intermediate_reply(text: str) -> bool:
         "permintaan dibatalkan.",
     )
     if clean in cancel_confirmations:
+        return True
+
+    # 2b. Pesan konfirmasi/notifikasi login akun perantara (misal: "✅ Login: <user> (12345)")
+    # yang dikirim bot sebelum menyajikan menu/daftar misi sebenarnya.
+    if ("login:" in clean or "login :" in clean) and not any(k in clean for k in (
+        "gagal", "tidak ditemukan", "tidak terdaftar", "tidak valid", "dibatasi", "banned"
+    )):
         return True
 
     # KECUALI jika mengandung kata hasil akhir definitif (prioritaskan hasil akhir jika ada):
@@ -1393,8 +1406,9 @@ def parse_qris_result(text: str, has_finished_button: bool = False):
     return None
 
 
-async def check_one_mission(client, username: str, auth_method: str = "username"):
+async def check_one_mission(client, username: str, auth_method: str = "username", debug: bool = False):
     """Memeriksa status Misi Bayar QRIS untuk 1 akun."""
+    is_debug = debug or os.getenv("DEBUG") in ("1", "true", "True") or os.getenv("CEK_MISI_DEBUG") == "1"
     previous = await client.get_messages(TARGET_BOT, limit=1)
     start_id = previous[0].id if previous else 0
     command = await client.send_message(TARGET_BOT, "/mission")
@@ -1460,6 +1474,23 @@ async def check_one_mission(client, username: str, auth_method: str = "username"
                 continue
             last_seen[msg.id] = cache_key
 
+            # Log diagnostik aman (hanya saat debug, kredensial/token selalu disamarkan)
+            if is_debug:
+                masked_text = text.replace(username.strip(), "[USER]")
+                masked_text = re.sub(r"SPC_EC=[^;\s]+", "SPC_EC=[TOKEN]", masked_text)
+                masked_text = re.sub(r"SPC_U=\d+", "SPC_U=[UID]", masked_text)
+                masked_text = re.sub(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", "[EMAIL]", masked_text)
+                preview = " ".join(masked_text.split())[:60]
+                inter_val = is_bot_intermediate_reply(text)
+                qris_val = parse_qris_result(text, has_finished_button=has_btn)
+                neg_val = detect_bot_definitive_negative(text, mode="misi")
+                print(
+                    f"  {CYAN}[DEBUG-MISI]{RESET} id={msg.id} (rel=+{msg.id - sent_msg.id}) | "
+                    f"btn={'Y' if has_btn else 'N'} | inter={inter_val} | "
+                    f"qris={'HIT' if qris_val else 'None'} | neg={'HIT' if neg_val else 'None'} | "
+                    f"text='{preview}'"
+                )
+
             # 1. Abaikan pesan proses / loading / perantara
             if is_bot_intermediate_reply(text):
                 continue
@@ -1493,6 +1524,9 @@ async def check_one_mission(client, username: str, auth_method: str = "username"
         if result:
             return result
         return None, "TIDAK ADA MISI QRIS", "Misi Bayar QRIS tidak ditemukan di akun ini"
+
+    if is_debug:
+        print(f"  {YELLOW}[DEBUG-MISI] Deadline tercapai ({RESULT_TIMEOUT}s). last_misi_state={'Ada' if last_misi_state else 'None'}{RESET}")
 
     return None, "TIMEOUT", "Timeout menunggu balasan bot"
 

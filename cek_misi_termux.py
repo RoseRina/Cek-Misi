@@ -77,7 +77,7 @@ print_bulk_format_guidance = shopee_core.print_bulk_format_guidance
 pilih_daftar_akun_bulk = shopee_core.pilih_daftar_akun_bulk
 
 
-async def run_misi_mode(client, usernames, auth_method="username", step_delay=2.5, reused_records=None, recheck_targets=None):
+async def run_misi_mode(client, usernames, auth_method="username", step_delay=2.5, reused_records=None, recheck_targets=None, debug=False):
     total = len(usernames)
     recheck_set = set(recheck_targets or [])
     preserved_records = []
@@ -92,7 +92,7 @@ async def run_misi_mode(client, usernames, auth_method="username", step_delay=2.
         print(f"{CYAN}{bar}{RESET} {BOLD}{display}{RESET}")
         is_recheck = user in recheck_set
         try:
-            coins, status, detail = await shopee_core.check_one_mission(client, user, auth_method=auth_method)
+            coins, status, detail = await shopee_core.check_one_mission(client, user, auth_method=auth_method, debug=debug)
             is_err = any(err in (status or "").upper() for err in ("TIMEOUT", "ERROR", "FLOOD"))
 
             if is_recheck and is_err:
@@ -800,6 +800,7 @@ async def main():
     parser.add_argument("--bulk", action="store_true", help="Jalankan dalam mode massal / bulk")
     parser.add_argument("--resume", action="store_true", help="Lewati akun yang sudah pernah dicek di CSV")
     parser.add_argument("--delay", type=float, default=2.5, help="Jeda waktu antar akun (detik, default: 2.5)")
+    parser.add_argument("--debug", action="store_true", help="Tampilkan log diagnostik detail (tersamar tanpa kredensial)")
     parser.add_argument("--reset", action="store_true", help="Reset konfigurasi dan sesi Telegram tersimpan")
     args = parser.parse_args()
 
@@ -825,7 +826,7 @@ async def main():
         try:
             await shopee_core.start_client(client)
             if mode == "misi":
-                await run_misi_mode(client, usernames, auth_method=eff_method, step_delay=args.delay)
+                await run_misi_mode(client, usernames, auth_method=eff_method, step_delay=args.delay, debug=args.debug)
             elif mode == "food":
                 await run_food_mode(client, usernames, auth_method=eff_method, step_delay=args.delay)
             elif mode == "both":
@@ -1075,6 +1076,7 @@ async def main():
                     step_delay=delay,
                     reused_records=reused_records,
                     recheck_targets=recheck_targets,
+                    debug=getattr(args, "debug", False),
                 )
             elif selected_mode == "food":
                 await run_food_mode(
