@@ -303,14 +303,43 @@ def classify_claim_response(text: str) -> Tuple[str, str]:
     if any(k in clean for k in ("limit", "dibatasi", "banned", "terbatas")):
         return "GAGAL", "Akun atau kuota terkena limit"
 
-    if any(k in clean for k in ("tidak ditemukan", "not found", "user tidak valid", "akun tidak valid", "tidak terdaftar")):
+    if any(k in clean for k in (
+        "tidak ditemukan",
+        "not found",
+        "user tidak valid",
+        "akun tidak valid",
+        "tidak terdaftar",
+        "user tidak ditemukan",
+        "akun tidak terdaftar",
+        "user tidak terdaftar",
+    )):
         return "GAGAL", "Identitas akun tidak ditemukan atau tidak valid"
+
+    if any(k in clean for k in ("belum punya nomor hp", "belum punya nomor", "tidak punya nomor hp", "tidak memiliki nomor hp")):
+        return "GAGAL", "Akun belum memiliki nomor HP"
+
+    if any(k in clean for k in (
+        "cookie tidak valid",
+        "invalid cookie",
+        "cookie expired",
+        "cookie kadaluarsa",
+        "cookie sudah kadaluwarsa",
+        "format cookie salah",
+    )):
+        return "GAGAL", "Cookie tidak valid atau sudah kedaluwarsa"
+
+    if any(k in clean for k in ("voucher tidak valid", "voucher salah", "invalid voucher", "voucher tidak ditemukan")):
+        return "GAGAL", "Tautan atau kode voucher tidak valid"
 
     if "maaf" in clean and any(w in clean for w in ("tidak", "belum", "gagal", "batal")):
         return "GAGAL", "Klaim voucher ditolak bot"
 
     if "gagal" in clean or "failed" in clean:
         return "GAGAL", "Gagal mengklaim voucher (ditolak bot)"
+
+    if "❌" in raw_str:
+        detail_txt = raw_str.replace("❌", "").strip() or raw_str
+        return "GAGAL", detail_txt
 
     snippet = sanitize_log_text(raw_str.replace("\n", " "))
     if len(snippet) > 60:

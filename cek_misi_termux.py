@@ -77,40 +77,78 @@ print_bulk_format_guidance = shopee_core.print_bulk_format_guidance
 pilih_daftar_akun_bulk = shopee_core.pilih_daftar_akun_bulk
 
 
-async def run_misi_mode(client, usernames, auth_method="username", step_delay=2.5):
+async def run_misi_mode(client, usernames, auth_method="username", step_delay=2.5, reused_records=None, recheck_targets=None):
     total = len(usernames)
+    recheck_set = set(recheck_targets or [])
+    preserved_records = []
     print(f"\n{YELLOW}{BOLD}▶ Memulai Pengecekan Misi Bayar QRIS ({total} akun/cookie, Metode: {auth_method.upper()})...{RESET}\n")
     success_count = 0
     fail_count = 0
+    error_count = 0
 
     for idx, user in enumerate(usernames, 1):
         bar = shopee_core.render_progress_bar(idx, total)
         display = shopee_core.format_account_display(user, auth_method)
         print(f"{CYAN}{bar}{RESET} {BOLD}{display}{RESET}")
+        is_recheck = user in recheck_set
         try:
             coins, status, detail = await shopee_core.check_one_mission(client, user, auth_method=auth_method)
-            shopee_core.save_mission_result(user, coins, status, detail)
+            is_err = any(err in (status or "").upper() for err in ("TIMEOUT", "ERROR", "FLOOD"))
 
-            if status in ("SELESAI", "SUDAH DICLAIM", "BELUM SELESAI"):
-                color = GREEN if status == "SELESAI" else YELLOW
-                c_str = f"{coins:,} koin" if coins is not None else "-"
-                print(f"  └─ {color}{BOLD}Bayar QRIS: {c_str} | {status}{RESET}\n")
-                success_count += 1
-            elif status == "TIDAK ADA MISI QRIS":
-                print(f"  └─ {YELLOW}⚠️ {status}: {detail}{RESET}\n")
-                fail_count += 1
+            if is_recheck and is_err:
+                preserved_records.append({
+                    "account": user,
+                    "display": display,
+                    "status": status,
+                    "detail": detail,
+                    "reason": f"Cek ulang menghasilkan {status}, hasil sukses lama dipertahankan",
+                })
+                print(f"  └─ {YELLOW}🛡️ Cek ulang {status} ({detail}) -> Hasil sukses lama DIPERTAHANKAN.{RESET}\n")
             else:
-                print(f"  └─ {RED}❌ {status}: {detail}{RESET}\n")
-                fail_count += 1
+                shopee_core.save_mission_result(user, coins, status, detail)
+
+                if status in ("SELESAI", "SUDAH DICLAIM", "BELUM SELESAI"):
+                    color = GREEN if status == "SELESAI" else YELLOW
+                    c_str = f"{coins:,} koin" if coins is not None else "-"
+                    print(f"  └─ {color}{BOLD}Bayar QRIS: {c_str} | {status}{RESET}\n")
+                    success_count += 1
+                elif status == "TIDAK ADA MISI QRIS":
+                    print(f"  └─ {YELLOW}⚠️ {status}: {detail}{RESET}\n")
+                    fail_count += 1
+                else:
+                    print(f"  └─ {RED}❌ {status}: {detail}{RESET}\n")
+                    fail_count += 1
         except FloodWaitError as exc:
             msg = f"Telegram meminta jeda {exc.seconds} detik. Antrean dihentikan."
-            shopee_core.save_mission_result(user, None, "FLOOD_WAIT", msg)
-            print(f"  └─ {RED}⚠️ FloodWait {exc.seconds}s. Antrean dihentikan.{RESET}\n")
+            if is_recheck:
+                preserved_records.append({
+                    "account": user,
+                    "display": display,
+                    "status": "FLOOD_WAIT",
+                    "detail": msg,
+                    "reason": "Cek ulang terkena FloodWait, hasil sukses lama dipertahankan",
+                })
+                print(f"  └─ {YELLOW}🛡️ Cek ulang FloodWait -> Hasil sukses lama DIPERTAHANKAN.{RESET}\n")
+            else:
+                shopee_core.save_mission_result(user, None, "FLOOD_WAIT", msg)
+                error_count += 1
+                print(f"  └─ {RED}⚠️ FloodWait {exc.seconds}s. Antrean dihentikan.{RESET}\n")
             break
         except Exception as exc:
-            shopee_core.save_mission_result(user, None, "ERROR", str(exc))
-            print(f"  └─ {RED}Error: {exc}{RESET}\n")
-            fail_count += 1
+            if is_recheck:
+                preserved_records.append({
+                    "account": user,
+                    "display": display,
+                    "status": "ERROR",
+                    "detail": str(exc),
+                    "reason": "Cek ulang error, hasil sukses lama dipertahankan",
+                })
+                print(f"  └─ {YELLOW}🛡️ Cek ulang Error -> Hasil sukses lama DIPERTAHANKAN.{RESET}\n")
+            else:
+                shopee_core.save_mission_result(user, None, "ERROR", str(exc))
+                print(f"  └─ {RED}Error: {exc}{RESET}\n")
+                fail_count += 1
+                error_count += 1
 
         if idx < total:
             await asyncio.sleep(step_delay)
@@ -121,9 +159,24 @@ async def run_misi_mode(client, usernames, auth_method="username", step_delay=2.
     print(f"{RED}❌ Gagal / Tidak Ada: {fail_count}{RESET}")
     print(f"📂 Rincian tersimpan di: {shopee_core.RESULTS_MISI_FILE.name} (CSV) & {shopee_core.RESULTS_MISI_TXT.name} (TXT)\n")
 
+    if reused_records or preserved_records:
+        shopee_core.print_combined_execution_summary(
+            mode="misi",
+            total_all=total + (len(reused_records) if reused_records else 0),
+            total_processed=total,
+            new_success=success_count,
+            new_fail=fail_count,
+            new_error=error_count,
+            reused_records=reused_records or [],
+            preserved_records=preserved_records,
+            auth_method=auth_method,
+        )
 
-async def run_food_mode(client, usernames, auth_method="username", step_delay=2.5):
+
+async def run_food_mode(client, usernames, auth_method="username", step_delay=2.5, reused_records=None, recheck_targets=None):
     total = len(usernames)
+    recheck_set = set(recheck_targets or [])
+    preserved_records = []
     print(f"\n{YELLOW}{BOLD}▶ Memulai Pengecekan Voucher Shopee Food ({total} akun/cookie, Metode: {auth_method.upper()})...{RESET}\n")
     processed_count = 0
     valid_count = 0
@@ -136,37 +189,69 @@ async def run_food_mode(client, usernames, auth_method="username", step_delay=2.
         bar = shopee_core.render_progress_bar(idx, total)
         display = shopee_core.format_account_display(user, auth_method)
         print(f"{CYAN}{bar}{RESET} {BOLD}{display}{RESET}")
+        is_recheck = user in recheck_set
         try:
             is_valid, status, detail, has_25k, has_12k = await shopee_core.check_one_food(client, user, auth_method=auth_method)
-            shopee_core.save_food_result(user, is_valid, status, detail, has_25k, has_12k)
             processed_count += 1
+            is_err = any(err in (status or "").upper() for err in ("TIMEOUT", "ERROR", "FLOOD"))
 
-            category = shopee_core.classify_food_status(is_valid, status)
-            if category == "VALID":
-                print(f"  └─ {GREEN}{BOLD}✅ {status} ({detail}){RESET}\n")
-                valid_count += 1
-                valid_list.append(user)
-            elif category == "PARSIAL":
-                print(f"  └─ {YELLOW}⚠️ {status} ({detail}){RESET}\n")
-                partial_count += 1
-            elif category == "ERROR":
-                print(f"  └─ {RED}❌ {status} ({detail}){RESET}\n")
-                error_count += 1
-            else:  # INVALID
-                print(f"  └─ {YELLOW}⚠️ {status} ({detail}){RESET}\n")
-                invalid_count += 1
+            if is_recheck and is_err:
+                preserved_records.append({
+                    "account": user,
+                    "display": display,
+                    "status": status,
+                    "detail": detail,
+                    "reason": f"Cek ulang menghasilkan {status}, hasil valid/sukses lama dipertahankan",
+                })
+                print(f"  └─ {YELLOW}🛡️ Cek ulang {status} ({detail}) -> Hasil valid lama DIPERTAHANKAN.{RESET}\n")
+            else:
+                shopee_core.save_food_result(user, is_valid, status, detail, has_25k, has_12k)
+                category = shopee_core.classify_food_status(is_valid, status)
+                if category == "VALID":
+                    print(f"  └─ {GREEN}{BOLD}✅ {status} ({detail}){RESET}\n")
+                    valid_count += 1
+                    valid_list.append(user)
+                elif category == "PARSIAL":
+                    print(f"  └─ {YELLOW}⚠️ {status} ({detail}){RESET}\n")
+                    partial_count += 1
+                elif category == "ERROR":
+                    print(f"  └─ {RED}❌ {status} ({detail}){RESET}\n")
+                    error_count += 1
+                else:  # INVALID
+                    print(f"  └─ {YELLOW}⚠️ {status} ({detail}){RESET}\n")
+                    invalid_count += 1
         except FloodWaitError as exc:
             msg = f"Telegram meminta jeda {exc.seconds} detik. Antrean dihentikan."
-            shopee_core.save_food_result(user, False, "FLOOD_WAIT", msg, False, False)
             processed_count += 1
-            error_count += 1
-            print(f"  └─ {RED}⚠️ FloodWait {exc.seconds}s. Antrean dihentikan.{RESET}\n")
+            if is_recheck:
+                preserved_records.append({
+                    "account": user,
+                    "display": display,
+                    "status": "FLOOD_WAIT",
+                    "detail": msg,
+                    "reason": "Cek ulang terkena FloodWait, hasil valid lama dipertahankan",
+                })
+                print(f"  └─ {YELLOW}🛡️ Cek ulang FloodWait -> Hasil valid lama DIPERTAHANKAN.{RESET}\n")
+            else:
+                shopee_core.save_food_result(user, False, "FLOOD_WAIT", msg, False, False)
+                error_count += 1
+                print(f"  └─ {RED}⚠️ FloodWait {exc.seconds}s. Antrean dihentikan.{RESET}\n")
             break
         except Exception as exc:
-            shopee_core.save_food_result(user, False, "ERROR", str(exc), False, False)
-            print(f"  └─ {RED}Error: {exc}{RESET}\n")
             processed_count += 1
-            error_count += 1
+            if is_recheck:
+                preserved_records.append({
+                    "account": user,
+                    "display": display,
+                    "status": "ERROR",
+                    "detail": str(exc),
+                    "reason": "Cek ulang error, hasil valid lama dipertahankan",
+                })
+                print(f"  └─ {YELLOW}🛡️ Cek ulang Error -> Hasil valid lama DIPERTAHANKAN.{RESET}\n")
+            else:
+                shopee_core.save_food_result(user, False, "ERROR", str(exc), False, False)
+                print(f"  └─ {RED}Error: {exc}{RESET}\n")
+                error_count += 1
 
         if idx < total:
             await asyncio.sleep(step_delay)
@@ -181,53 +266,99 @@ async def run_food_mode(client, usernames, auth_method="username", step_delay=2.
         show_csv_path=True,
     )
 
+    if reused_records or preserved_records:
+        shopee_core.print_combined_execution_summary(
+            mode="food",
+            total_all=total + (len(reused_records) if reused_records else 0),
+            total_processed=processed_count,
+            new_success=valid_count,
+            new_fail=invalid_count + partial_count,
+            new_error=error_count,
+            reused_records=reused_records or [],
+            preserved_records=preserved_records,
+            auth_method=auth_method,
+        )
 
-async def run_both_mode(client, usernames, auth_method="username", step_delay=2.5):
+
+async def run_both_mode(client, usernames, auth_method="username", step_delay=2.5, reused_records=None, recheck_targets=None):
     total = len(usernames)
+    recheck_set = set(recheck_targets or [])
+    preserved_records = []
     print(f"\n{YELLOW}{BOLD}▶ Memulai Pengecekan Keduanya (Misi QRIS + Voucher Food) ({total} akun/cookie, Metode: {auth_method.upper()})...{RESET}\n")
+    processed_count = 0
+    success_count = 0
+    fail_count = 0
+    error_count = 0
 
     for idx, user in enumerate(usernames, 1):
         bar = shopee_core.render_progress_bar(idx, total)
         display = shopee_core.format_account_display(user, auth_method)
         print(f"{CYAN}{bar}{RESET} {BOLD}{display}{RESET}")
+        is_recheck = user in recheck_set
+        processed_count += 1
         try:
             # 1. Cek Misi QRIS
             print(f"  [1/2] Memeriksa Misi QRIS...")
             coins, m_status, m_detail = await shopee_core.check_one_mission(client, user, auth_method=auth_method)
-            shopee_core.save_mission_result(user, coins, m_status, m_detail)
-            if m_status in ("SELESAI", "SUDAH DICLAIM", "BELUM SELESAI"):
-                color = GREEN if m_status == "SELESAI" else YELLOW
-                c_str = f"{coins:,} koin" if coins is not None else "-"
-                print(f"        └─ {color}Bayar QRIS: {c_str} | {m_status}{RESET}")
-            elif m_status == "TIDAK ADA MISI QRIS":
-                print(f"        └─ {YELLOW}⚠️ {m_status}: {m_detail}{RESET}")
-            else:
-                print(f"        └─ {RED}❌ {m_status}: {m_detail}{RESET}")
-
             await asyncio.sleep(step_delay)
 
             # 2. Cek Voucher Food
             print(f"  [2/2] Memeriksa Voucher Shopee Food...")
             is_valid, f_status, f_detail, has_25k, has_12k = await shopee_core.check_one_food(client, user, auth_method=auth_method)
-            shopee_core.save_food_result(user, is_valid, f_status, f_detail, has_25k, has_12k)
-            f_cat = shopee_core.classify_food_status(is_valid, f_status)
-            if f_cat == "VALID":
-                print(f"        └─ {GREEN}✅ {f_status} ({f_detail}){RESET}\n")
-            elif f_cat == "PARSIAL":
-                print(f"        └─ {YELLOW}⚠️ {f_status} ({f_detail}){RESET}\n")
-            elif f_cat == "ERROR":
-                print(f"        └─ {RED}❌ {f_status} ({f_detail}){RESET}\n")
-            else:
-                print(f"        └─ {YELLOW}⚠️ {f_status} ({f_detail}){RESET}\n")
 
-            # 3. Simpan laporan gabungan
-            shopee_core.save_combined_result(user, coins, m_status, f_status, f_detail)
+            is_err = any(err in f"{m_status} {f_status}".upper() for err in ("TIMEOUT", "ERROR", "FLOOD"))
+            if is_recheck and is_err:
+                preserved_records.append({
+                    "account": user,
+                    "display": display,
+                    "status": f"{m_status} | {f_status}",
+                    "detail": f"{m_detail} | {f_detail}",
+                    "reason": "Cek ulang timeout/error, hasil sukses lama dipertahankan",
+                })
+                print(f"  └─ {YELLOW}🛡️ Cek ulang timeout/error -> Hasil sukses lama DIPERTAHANKAN.{RESET}\n")
+            else:
+                shopee_core.save_mission_result(user, coins, m_status, m_detail)
+                shopee_core.save_food_result(user, is_valid, f_status, f_detail, has_25k, has_12k)
+                shopee_core.save_combined_result(user, coins, m_status, f_status, f_detail)
+
+                f_cat = shopee_core.classify_food_status(is_valid, f_status)
+                if f_cat == "VALID" or m_status in ("SELESAI", "SUDAH DICLAIM"):
+                    success_count += 1
+                    color = GREEN
+                else:
+                    fail_count += 1
+                    color = YELLOW
+                c_str = f"{coins:,} koin" if coins is not None else "-"
+                print(f"        └─ {color}Misi: {m_status} ({c_str}) | Food: {f_status} ({f_detail}){RESET}\n")
 
         except FloodWaitError as exc:
-            print(f"  └─ {RED}⚠️ Telegram FloodWait {exc.seconds}s. Antrean dihentikan.{RESET}\n")
+            if is_recheck:
+                preserved_records.append({
+                    "account": user,
+                    "display": display,
+                    "status": "FLOOD_WAIT",
+                    "detail": f"FloodWait {exc.seconds}s",
+                    "reason": "Cek ulang terkena FloodWait, hasil sukses lama dipertahankan",
+                })
+                print(f"  └─ {YELLOW}🛡️ Cek ulang FloodWait -> Hasil sukses lama DIPERTAHANKAN.{RESET}\n")
+            else:
+                error_count += 1
+                print(f"  └─ {RED}⚠️ Telegram FloodWait {exc.seconds}s. Antrean dihentikan.{RESET}\n")
             break
         except Exception as exc:
-            print(f"  └─ {RED}Error: {exc}{RESET}\n")
+            if is_recheck:
+                preserved_records.append({
+                    "account": user,
+                    "display": display,
+                    "status": "ERROR",
+                    "detail": str(exc),
+                    "reason": "Cek ulang error, hasil sukses lama dipertahankan",
+                })
+                print(f"  └─ {YELLOW}🛡️ Cek ulang Error -> Hasil sukses lama DIPERTAHANKAN.{RESET}\n")
+            else:
+                fail_count += 1
+                error_count += 1
+                print(f"  └─ {RED}Error: {exc}{RESET}\n")
 
         if idx < total:
             await asyncio.sleep(step_delay)
@@ -235,8 +366,21 @@ async def run_both_mode(client, usernames, auth_method="username", step_delay=2.
     print(f"{CYAN}{BOLD}==================== PENGECEKAN GABUNGAN SELESAI ===================={RESET}")
     print(f"📂 Hasil lengkap tersimpan di: {shopee_core.RESULTS_ALL_FILE.name} (CSV) & {shopee_core.RESULTS_ALL_TXT.name} (TXT)\n")
 
+    if reused_records or preserved_records:
+        shopee_core.print_combined_execution_summary(
+            mode="both",
+            total_all=total + (len(reused_records) if reused_records else 0),
+            total_processed=processed_count,
+            new_success=success_count,
+            new_fail=fail_count,
+            new_error=error_count,
+            reused_records=reused_records or [],
+            preserved_records=preserved_records,
+            auth_method=auth_method,
+        )
 
-async def run_change_number_mode(client, usernames, auth_method="username", step_delay=2.5):
+
+async def run_change_number_mode(client, usernames, auth_method="username", step_delay=2.5, reused_records=None, recheck_targets=None):
     """Menjalankan antrean pengecekan status kelayakan ganti nomor (Checker Only).
     
     PRINSIP KEAMANAN:
@@ -246,6 +390,8 @@ async def run_change_number_mode(client, usernames, auth_method="username", step
     - Masking format_account_display aktif untuk semua tampilan terminal dan file hasil.
     """
     total = len(usernames)
+    recheck_set = set(recheck_targets or [])
+    preserved_records = []
     print(f"\n{YELLOW}{BOLD}▶ Memulai Pengecekan Ganti Nomor (Checker Only) ({total} akun/cookie, Metode: {auth_method.upper()})...{RESET}")
     print(f"  {DIM}ℹ️  Mode aman: Hanya mengecek syarat verifikasi, selalu dibatalkan & nomor TIDAK diubah.{RESET}\n")
     processed_count = 0
@@ -258,33 +404,65 @@ async def run_change_number_mode(client, usernames, auth_method="username", step
         bar = shopee_core.render_progress_bar(idx, total)
         display = shopee_core.format_account_display(user, auth_method)
         print(f"{CYAN}{bar}{RESET} {BOLD}{display}{RESET}")
+        is_recheck = user in recheck_set
         try:
             is_eligible, status, detail = await shopee_core.check_one_change_number(client, user, auth_method=auth_method)
-            shopee_core.save_ganti_nomor_result(user, status, detail, auth_method=auth_method)
             processed_count += 1
+            is_err = any(err in (status or "").upper() for err in ("TIMEOUT", "ERROR", "FLOOD"))
 
-            if status == "SUKSES":
-                print(f"  └─ {GREEN}{BOLD}✅ {status} ({detail}){RESET}\n")
-                success_count += 1
-                success_list.append(display)
-            elif status == "GAGAL":
-                print(f"  └─ {YELLOW}⚠️ {status} ({detail}){RESET}\n")
-                fail_count += 1
+            if is_recheck and is_err:
+                preserved_records.append({
+                    "account": user,
+                    "display": display,
+                    "status": status,
+                    "detail": detail,
+                    "reason": f"Cek ulang menghasilkan {status}, hasil layak lama dipertahankan",
+                })
+                print(f"  └─ {YELLOW}🛡️ Cek ulang {status} ({detail}) -> Hasil layak lama DIPERTAHANKAN.{RESET}\n")
             else:
-                print(f"  └─ {RED}❌ {status} ({detail}){RESET}\n")
-                error_count += 1
+                shopee_core.save_ganti_nomor_result(user, status, detail, auth_method=auth_method)
+                if status == "SUKSES":
+                    print(f"  └─ {GREEN}{BOLD}✅ {status} ({detail}){RESET}\n")
+                    success_count += 1
+                    success_list.append(display)
+                elif status == "GAGAL":
+                    print(f"  └─ {YELLOW}⚠️ {status} ({detail}){RESET}\n")
+                    fail_count += 1
+                else:
+                    print(f"  └─ {RED}❌ {status} ({detail}){RESET}\n")
+                    error_count += 1
         except FloodWaitError as exc:
             msg = f"Telegram meminta jeda {exc.seconds} detik. Antrean dihentikan."
-            shopee_core.save_ganti_nomor_result(user, "FLOOD_WAIT", msg, auth_method=auth_method)
             processed_count += 1
-            error_count += 1
-            print(f"  └─ {RED}⚠️ FloodWait {exc.seconds}s. Antrean dihentikan.{RESET}\n")
+            if is_recheck:
+                preserved_records.append({
+                    "account": user,
+                    "display": display,
+                    "status": "FLOOD_WAIT",
+                    "detail": msg,
+                    "reason": "Cek ulang terkena FloodWait, hasil layak lama dipertahankan",
+                })
+                print(f"  └─ {YELLOW}🛡️ Cek ulang FloodWait -> Hasil layak lama DIPERTAHANKAN.{RESET}\n")
+            else:
+                shopee_core.save_ganti_nomor_result(user, "FLOOD_WAIT", msg, auth_method=auth_method)
+                error_count += 1
+                print(f"  └─ {RED}⚠️ FloodWait {exc.seconds}s. Antrean dihentikan.{RESET}\n")
             break
         except Exception as exc:
-            shopee_core.save_ganti_nomor_result(user, "ERROR", str(exc), auth_method=auth_method)
-            print(f"  └─ {RED}Error: {exc}{RESET}\n")
             processed_count += 1
-            error_count += 1
+            if is_recheck:
+                preserved_records.append({
+                    "account": user,
+                    "display": display,
+                    "status": "ERROR",
+                    "detail": str(exc),
+                    "reason": "Cek ulang error, hasil layak lama dipertahankan",
+                })
+                print(f"  └─ {YELLOW}🛡️ Cek ulang Error -> Hasil layak lama DIPERTAHANKAN.{RESET}\n")
+            else:
+                shopee_core.save_ganti_nomor_result(user, "ERROR", str(exc), auth_method=auth_method)
+                print(f"  └─ {RED}Error: {exc}{RESET}\n")
+                error_count += 1
 
         if idx < total:
             await asyncio.sleep(step_delay)
@@ -298,11 +476,26 @@ async def run_change_number_mode(client, usernames, auth_method="username", step
         show_csv_path=True,
     )
 
+    if reused_records or preserved_records:
+        shopee_core.print_combined_execution_summary(
+            mode="ganti_nomor",
+            total_all=total + (len(reused_records) if reused_records else 0),
+            total_processed=processed_count,
+            new_success=success_count,
+            new_fail=fail_count,
+            new_error=error_count,
+            reused_records=reused_records or [],
+            preserved_records=preserved_records,
+            auth_method=auth_method,
+        )
 
-async def run_worker_pool_mode(clients, usernames, mode="misi", auth_method="auto", step_delay=2.5):
+
+async def run_worker_pool_mode(clients, usernames, mode="misi", auth_method="auto", step_delay=2.5, reused_records=None, recheck_targets=None):
     """Menjalankan pengecekan secara paralel menggunakan multiple worker Telegram."""
     total = len(usernames)
     num_workers = len(clients)
+    recheck_set = set(recheck_targets or [])
+    preserved_records = []
     print(f"\n{YELLOW}{BOLD}🚀 Memulai Multi-Worker Parallel Engine ({num_workers} Worker Telegram, {total} Akun)...{RESET}\n")
 
     # Ambil info identitas setiap worker
@@ -337,59 +530,130 @@ async def run_worker_pool_mode(clients, usernames, mode="misi", auth_method="aut
             bar = shopee_core.render_progress_bar(idx, total)
             display = shopee_core.format_account_display(user, auth_method)
             print(f"{CYAN}{bar}{RESET} [{MAGENTA}{w_name}{RESET}] {BOLD}{display}{RESET}")
+            is_recheck = user in recheck_set
 
             try:
                 if mode == "misi":
                     coins, status, detail = await shopee_core.check_one_mission(client, user, auth_method=auth_method)
-                    shopee_core.save_mission_result(user, coins, status, detail)
-                    if status in ("SELESAI", "SUDAH DICLAIM", "BELUM SELESAI"):
-                        color = GREEN if status == "SELESAI" else YELLOW
-                        c_txt = f"{coins:,} koin" if coins is not None else "-"
-                        print(f"  └─ [{w_name}] {color}Bayar QRIS: {c_txt} | Status: {status}{RESET}\n")
+                    is_err = any(err in (status or "").upper() for err in ("TIMEOUT", "ERROR", "FLOOD"))
+
+                    if is_recheck and is_err:
                         async with lock:
-                            success_count += 1
+                            preserved_records.append({
+                                "account": user,
+                                "display": display,
+                                "status": status,
+                                "detail": detail,
+                                "reason": f"Cek ulang menghasilkan {status}, hasil sukses lama dipertahankan",
+                            })
                             processed_count += 1
-                    elif status == "TIDAK ADA MISI QRIS":
-                        print(f"  └─ [{w_name}] {YELLOW}⚠️ {status}: {detail}{RESET}\n")
-                        async with lock:
-                            fail_count += 1
-                            processed_count += 1
+                        print(f"  └─ [{w_name}] {YELLOW}🛡️ Cek ulang {status} -> Hasil sukses lama DIPERTAHANKAN.{RESET}\n")
                     else:
-                        print(f"  └─ [{w_name}] {RED}❌ {status}: {detail}{RESET}\n")
-                        async with lock:
-                            fail_count += 1
-                            processed_count += 1
+                        shopee_core.save_mission_result(user, coins, status, detail)
+                        if status in ("SELESAI", "SUDAH DICLAIM", "BELUM SELESAI"):
+                            color = GREEN if status == "SELESAI" else YELLOW
+                            c_txt = f"{coins:,} koin" if coins is not None else "-"
+                            print(f"  └─ [{w_name}] {color}Bayar QRIS: {c_txt} | Status: {status}{RESET}\n")
+                            async with lock:
+                                success_count += 1
+                                processed_count += 1
+                        elif status == "TIDAK ADA MISI QRIS":
+                            print(f"  └─ [{w_name}] {YELLOW}⚠️ {status}: {detail}{RESET}\n")
+                            async with lock:
+                                fail_count += 1
+                                processed_count += 1
+                        else:
+                            print(f"  └─ [{w_name}] {RED}❌ {status}: {detail}{RESET}\n")
+                            async with lock:
+                                fail_count += 1
+                                processed_count += 1
 
                 elif mode == "food":
                     is_valid, status, detail, has_25k, has_12k = await shopee_core.check_one_food(client, user, auth_method=auth_method)
-                    shopee_core.save_food_result(user, is_valid, status, detail, has_25k, has_12k)
-                    cat = shopee_core.classify_food_status(is_valid, status)
-                    is_cat_valid = (cat == "VALID")
-                    color = GREEN if is_cat_valid else (YELLOW if cat == "PARSIAL" else RED)
-                    icon = "✅" if is_cat_valid else ("⚠️" if cat == "PARSIAL" else "❌")
-                    print(f"  └─ [{w_name}] {color}{icon} {status} ({detail}){RESET}\n")
-                    async with lock:
-                        if is_cat_valid:
-                            success_count += 1
-                        else:
-                            fail_count += 1
-                        processed_count += 1
+                    is_err = any(err in (status or "").upper() for err in ("TIMEOUT", "ERROR", "FLOOD"))
+
+                    if is_recheck and is_err:
+                        async with lock:
+                            preserved_records.append({
+                                "account": user,
+                                "display": display,
+                                "status": status,
+                                "detail": detail,
+                                "reason": f"Cek ulang menghasilkan {status}, hasil valid lama dipertahankan",
+                            })
+                            processed_count += 1
+                        print(f"  └─ [{w_name}] {YELLOW}🛡️ Cek ulang {status} -> Hasil valid lama DIPERTAHANKAN.{RESET}\n")
+                    else:
+                        shopee_core.save_food_result(user, is_valid, status, detail, has_25k, has_12k)
+                        cat = shopee_core.classify_food_status(is_valid, status)
+                        is_cat_valid = (cat == "VALID")
+                        color = GREEN if is_cat_valid else (YELLOW if cat == "PARSIAL" else RED)
+                        icon = "✅" if is_cat_valid else ("⚠️" if cat == "PARSIAL" else "❌")
+                        print(f"  └─ [{w_name}] {color}{icon} {status} ({detail}){RESET}\n")
+                        async with lock:
+                            if is_cat_valid:
+                                success_count += 1
+                            else:
+                                fail_count += 1
+                            processed_count += 1
 
                 elif mode == "both":
                     coins, m_status, m_detail = await shopee_core.check_one_mission(client, user, auth_method=auth_method)
-                    shopee_core.save_mission_result(user, coins, m_status, m_detail)
                     await asyncio.sleep(step_delay)
                     is_valid, f_status, f_detail, has_25k, has_12k = await shopee_core.check_one_food(client, user, auth_method=auth_method)
-                    shopee_core.save_food_result(user, is_valid, f_status, f_detail, has_25k, has_12k)
-                    shopee_core.save_combined_result(user, coins, m_status, f_status, f_detail)
-                    cat = shopee_core.classify_food_status(is_valid, f_status)
-                    is_cat_valid = (cat == "VALID")
-                    color = GREEN if is_cat_valid else YELLOW
-                    c_txt = f"{coins:,} koin" if coins is not None else "-"
-                    print(f"  └─ [{w_name}] {color}Misi: {m_status} ({c_txt}) | Food: {f_status} ({f_detail}){RESET}\n")
-                    async with lock:
-                        processed_count += 1
-                        success_count += 1
+
+                    is_err = any(err in f"{m_status} {f_status}".upper() for err in ("TIMEOUT", "ERROR", "FLOOD"))
+                    if is_recheck and is_err:
+                        async with lock:
+                            preserved_records.append({
+                                "account": user,
+                                "display": display,
+                                "status": f"{m_status} | {f_status}",
+                                "detail": f"{m_detail} | {f_detail}",
+                                "reason": "Cek ulang timeout/error, hasil sukses lama dipertahankan",
+                            })
+                            processed_count += 1
+                        print(f"  └─ [{w_name}] {YELLOW}🛡️ Cek ulang timeout/error -> Hasil sukses lama DIPERTAHANKAN.{RESET}\n")
+                    else:
+                        shopee_core.save_mission_result(user, coins, m_status, m_detail)
+                        shopee_core.save_food_result(user, is_valid, f_status, f_detail, has_25k, has_12k)
+                        shopee_core.save_combined_result(user, coins, m_status, f_status, f_detail)
+                        cat = shopee_core.classify_food_status(is_valid, f_status)
+                        is_cat_valid = (cat == "VALID")
+                        color = GREEN if is_cat_valid else YELLOW
+                        c_txt = f"{coins:,} koin" if coins is not None else "-"
+                        print(f"  └─ [{w_name}] {color}Misi: {m_status} ({c_txt}) | Food: {f_status} ({f_detail}){RESET}\n")
+                        async with lock:
+                            processed_count += 1
+                            success_count += 1
+
+                elif mode == "ganti_nomor":
+                    is_eligible, status, detail = await shopee_core.check_one_change_number(client, user, auth_method=auth_method)
+                    is_err = any(err in (status or "").upper() for err in ("TIMEOUT", "ERROR", "FLOOD"))
+
+                    if is_recheck and is_err:
+                        async with lock:
+                            preserved_records.append({
+                                "account": user,
+                                "display": display,
+                                "status": status,
+                                "detail": detail,
+                                "reason": f"Cek ulang menghasilkan {status}, hasil layak lama dipertahankan",
+                            })
+                            processed_count += 1
+                        print(f"  └─ [{w_name}] {YELLOW}🛡️ Cek ulang {status} -> Hasil layak lama DIPERTAHANKAN.{RESET}\n")
+                    else:
+                        shopee_core.save_ganti_nomor_result(user, status, detail, auth_method=auth_method)
+                        if status == "SUKSES":
+                            print(f"  └─ [{w_name}] {GREEN}{BOLD}✅ {status} ({detail}){RESET}\n")
+                            async with lock:
+                                success_count += 1
+                                processed_count += 1
+                        else:
+                            print(f"  └─ [{w_name}] {YELLOW}⚠️ {status} ({detail}){RESET}\n")
+                            async with lock:
+                                fail_count += 1
+                                processed_count += 1
 
             except FloodWaitError as exc:
                 print(f"  └─ [{w_name}] {RED}⚠️ Telegram FloodWait {exc.seconds}s! Mengembalikan target ke antrean...{RESET}\n")
@@ -422,8 +686,23 @@ async def run_worker_pool_mode(clients, usernames, mode="misi", auth_method="aut
     elif mode == "food":
         print(f"📂 Rincian tersimpan di: {shopee_core.RESULTS_FOOD_FILE.name} (CSV) & {shopee_core.RESULTS_FOOD_TXT.name} (TXT)\n")
         print(f"📂 Akun valid (25k + 12k): {shopee_core.VALID_FOOD_FILE.name} | Akun Diskon 25RB: {shopee_core.DISKON_25K_TXT.name}\n")
+    elif mode == "ganti_nomor":
+        print(f"📂 Rincian tersimpan di: {shopee_core.RESULTS_GANTI_NOMOR_FILE.name} (CSV) & {shopee_core.RESULTS_GANTI_NOMOR_TXT.name} (TXT)\n")
     else:
         print(f"📂 Rincian tersimpan di: {shopee_core.RESULTS_ALL_FILE.name} (CSV) & {shopee_core.RESULTS_ALL_TXT.name} (TXT)\n")
+
+    if reused_records or preserved_records:
+        shopee_core.print_combined_execution_summary(
+            mode=mode,
+            total_all=total + (len(reused_records) if reused_records else 0),
+            total_processed=processed_count,
+            new_success=success_count,
+            new_fail=fail_count,
+            new_error=queue.qsize(),
+            reused_records=reused_records or [],
+            preserved_records=preserved_records,
+            auth_method=auth_method,
+        )
 
 
 async def kelola_workers_menu():
@@ -638,49 +917,75 @@ async def main():
     elif not auth_method:
         auth_method = pilih_metode_auth()
 
-    # Jika usernames belum diisi dari argumen file
-    if not usernames:
-        if not is_bulk:
-            while True:
-                print(f"\n{CYAN}{BOLD}⚙️ LANGKAH B - PILIH TIPE EKSEKUSI PENGISIAN AKUN:{RESET}")
-                print(f"  [1] ⚡ {BOLD}Isi Manual (1 Akun){RESET}")
-                print(f"      👉 Langsung ketik 1 akun (username atau cookie) di terminal.")
-                print(f"      👉 Dilengkapi validasi format, preview tersamar, & konfirmasi.")
-                print(f"  [2] 📦 {BOLD}Mode Massal / Bulk{RESET}")
-                print(f"      👉 Dituntun wizard 3 langkah: pilih sumber file / paste,")
-                print(f"         panduan format sesuai metode, & preview tersamar.")
-                tipe = input(f"{WHITE}Pilih tipe eksekusi [1/2, default: 2]: {RESET}").strip()
-                if tipe == "1":
-                    acc = input_manual_account(auth_method=auth_method)
-                    if not acc:
-                        print(f"{YELLOW}↩️ Kembali ke pilihan tipe eksekusi.{RESET}")
-                        continue
-                    usernames = [acc]
-                    break
-                elif tipe in ("", "2"):
-                    is_bulk = True
-                    usernames = pilih_daftar_akun_bulk(auth_method=auth_method)
-                    break
-                else:
-                    print(f"{YELLOW}⚠️ Pilihan tidak valid, silakan ketik 1 atau 2.{RESET}")
-        else:
-            usernames = pilih_daftar_akun_bulk(auth_method=auth_method)
+    reused_records = []
+    recheck_targets = set()
 
-    # Opsi Auto-Resume (Lewati akun yang sudah pernah dicek) jika dalam mode bulk dan bukan claim
-    if is_bulk and len(usernames) > 1 and not auto_resume and selected_mode != "claim":
-        ask_resume = input(f"\nLewati akun yang sudah ada hasil suksesnya di CSV? (Y/n) [Default: Y]: ").strip().casefold()
-        if ask_resume in ("", "y", "ya", "yes"):
-            auto_resume = True
+    # Loop pemilihan akun & penanganan resume/reuse
+    while True:
+        # Jika usernames belum diisi dari argumen file atau pengguna memilih 'b' untuk ganti sumber
+        if not usernames:
+            if not is_bulk:
+                while True:
+                    print(f"\n{CYAN}{BOLD}⚙️ LANGKAH B - PILIH TIPE EKSEKUSI PENGISIAN AKUN:{RESET}")
+                    print(f"  [1] ⚡ {BOLD}Isi Manual (1 Akun){RESET}")
+                    print(f"      👉 Langsung ketik 1 akun (username atau cookie) di terminal.")
+                    print(f"      👉 Dilengkapi validasi format, preview tersamar, & konfirmasi.")
+                    print(f"  [2] 📦 {BOLD}Mode Massal / Bulk{RESET}")
+                    print(f"      👉 Dituntun wizard 3 langkah: pilih sumber file / paste,")
+                    print(f"         panduan format sesuai metode, & preview tersamar.")
+                    tipe = input(f"{WHITE}Pilih tipe eksekusi [1/2, default: 2]: {RESET}").strip()
+                    if tipe == "1":
+                        acc = input_manual_account(auth_method=auth_method)
+                        if not acc:
+                            print(f"{YELLOW}↩️ Kembali ke pilihan tipe eksekusi.{RESET}")
+                            continue
+                        usernames = [acc]
+                        break
+                    elif tipe in ("", "2"):
+                        is_bulk = True
+                        usernames = pilih_daftar_akun_bulk(auth_method=auth_method)
+                        break
+                    else:
+                        print(f"{YELLOW}⚠️ Pilihan tidak valid, silakan ketik 1 atau 2.{RESET}")
+            else:
+                usernames = pilih_daftar_akun_bulk(auth_method=auth_method)
 
-    if auto_resume and selected_mode != "claim":
-        to_process, skipped = shopee_core.filter_unprocessed_usernames(usernames, selected_mode)
-        if skipped > 0:
-            print(f"\n{GREEN}ℹ️ Fitur Resume Aktif: {skipped} akun sudah pernah dicek dan dilewati.{RESET}")
-            print(f"👉 Tersisa {len(to_process)} akun yang akan diproses sekarang.")
-            usernames = to_process
-            if not usernames:
-                print(f"{GREEN}🎉 Semua akun dalam daftar sudah selesai dicek sebelumnya! Tidak ada antrean.{RESET}")
+        if not usernames:
+            return
+
+        # Opsi Auto-Resume / Reuse hasil sebelumnya jika dalam mode bulk dan bukan claim
+        if is_bulk and len(usernames) > 1 and selected_mode != "claim":
+            action, to_proc, reused, recheck_accs = shopee_core.handle_reuse_or_recheck_wizard(
+                usernames=usernames,
+                mode=selected_mode,
+                auth_method=auth_method,
+                auto_mode="reuse" if auto_resume else None,
+            )
+            if action == "back":
+                print(f"\n{YELLOW}↩️ Kembali ke pemilihan sumber akun...{RESET}")
+                usernames = None
+                continue
+            elif action == "finish":
+                # Pengguna memilih selesai, tampilkan laporan gabungan langsung
+                shopee_core.print_combined_execution_summary(
+                    mode=selected_mode,
+                    total_all=len(usernames),
+                    total_processed=0,
+                    new_success=0,
+                    new_fail=0,
+                    new_error=0,
+                    reused_records=reused,
+                    preserved_records=[],
+                    auth_method=auth_method,
+                )
                 return
+            else:
+                usernames = to_proc
+                reused_records = reused
+                recheck_targets = recheck_accs
+                break
+        else:
+            break
 
     print(f"\n{GREEN}✅ Total akun/cookie yang akan diproses: {len(usernames)} akun (Metode: {auth_method.upper()}).{RESET}")
 
@@ -705,7 +1010,15 @@ async def main():
                 await shopee_core.start_client(c)
                 active_clients.append(c)
             print(f"\n{GREEN}✅ {len(active_clients)} Worker Telegram siap bertugas!{RESET}")
-            await run_worker_pool_mode(active_clients, usernames, mode=selected_mode, auth_method=auth_method, step_delay=delay)
+            await run_worker_pool_mode(
+                active_clients,
+                usernames,
+                mode=selected_mode,
+                auth_method=auth_method,
+                step_delay=delay,
+                reused_records=reused_records,
+                recheck_targets=recheck_targets,
+            )
         finally:
             for c in active_clients:
                 try:
@@ -721,13 +1034,41 @@ async def main():
             print(f"{GREEN}✅ Terhubung ke Telegram! Memulai antrean...{RESET}")
 
             if selected_mode == "misi":
-                await run_misi_mode(client, usernames, auth_method=auth_method, step_delay=delay)
+                await run_misi_mode(
+                    client,
+                    usernames,
+                    auth_method=auth_method,
+                    step_delay=delay,
+                    reused_records=reused_records,
+                    recheck_targets=recheck_targets,
+                )
             elif selected_mode == "food":
-                await run_food_mode(client, usernames, auth_method=auth_method, step_delay=delay)
+                await run_food_mode(
+                    client,
+                    usernames,
+                    auth_method=auth_method,
+                    step_delay=delay,
+                    reused_records=reused_records,
+                    recheck_targets=recheck_targets,
+                )
             elif selected_mode == "both":
-                await run_both_mode(client, usernames, auth_method=auth_method, step_delay=delay)
+                await run_both_mode(
+                    client,
+                    usernames,
+                    auth_method=auth_method,
+                    step_delay=delay,
+                    reused_records=reused_records,
+                    recheck_targets=recheck_targets,
+                )
             elif selected_mode == "ganti_nomor":
-                await run_change_number_mode(client, usernames, auth_method=auth_method, step_delay=delay)
+                await run_change_number_mode(
+                    client,
+                    usernames,
+                    auth_method=auth_method,
+                    step_delay=delay,
+                    reused_records=reused_records,
+                    recheck_targets=recheck_targets,
+                )
             elif selected_mode == "claim":
                 v_links = None
                 if getattr(args, "voucher_link", None):

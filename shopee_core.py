@@ -19,7 +19,7 @@ from pathlib import Path
 import re
 import shutil
 import sys
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Set
 import unicodedata
 
 from bs4 import BeautifulSoup
@@ -356,9 +356,19 @@ def get_available_txt_files():
     return files
 
 
-def get_checked_usernames(mode: str = "misi"):
-    """Mengambil daftar username yang sudah berhasil dicek sebelumnya dari file CSV (untuk fitur resume)."""
-    checked = set()
+def get_checked_accounts_records(mode: str = "misi") -> Dict[str, Dict[str, Any]]:
+    """Mengambil data riwayat akun yang sudah berhasil dicek dari CSV (bukan status TIMEOUT/ERROR/FLOOD).
+    
+    Mengembalikan dict mapping username/account -> {
+        "account": row_user,
+        "display": row_user,
+        "status": st,
+        "detail": detail,
+        "date": date_str,
+        "is_success": bool,
+    }
+    """
+    records: Dict[str, Dict[str, Any]] = {}
     target_csv = None
     if mode == "misi":
         target_csv = RESULTS_MISI_FILE
@@ -371,38 +381,77 @@ def get_checked_usernames(mode: str = "misi"):
 
     if target_csv and target_csv.is_file():
         try:
-            user_latest_status = {}
             with target_csv.open("r", encoding="utf-8-sig", errors="ignore") as f:
                 reader = csv.reader(f)
                 header = next(reader, None)
                 for row in reader:
                     if len(row) >= 3:
+                        date_str = row[0].strip() if len(row) > 0 else "-"
                         user = row[1].strip()
                         if not user:
                             continue
+
+                        coins = None
                         if mode == "food":
                             # Kolom CSV Food: [Tanggal & Waktu, Username, Status, Diskon 25RB, Ongkir 12RB, Keterangan]
-                            st = row[2].strip().upper() if len(row) > 2 else ""
+                            st = row[2].strip() if len(row) > 2 else ""
+                            d25 = row[3].strip() if len(row) > 3 else "-"
+                            o12 = row[4].strip() if len(row) > 4 else "-"
+                            ket = row[5].strip() if len(row) > 5 else "-"
+                            detail = f"Diskon 25RB: {d25}, Ongkir 12RB: {o12} ({ket})"
                         elif mode == "both":
                             # Kolom CSV Both: [Tanggal & Waktu, Username, Koin, Status Misi, Status Food, Keterangan]
-                            st_misi = row[3].strip().upper() if len(row) > 3 else ""
-                            st_food = row[4].strip().upper() if len(row) > 4 else ""
+                            coins = row[2].strip() if len(row) > 2 else "-"
+                            st_misi = row[3].strip() if len(row) > 3 else ""
+                            st_food = row[4].strip() if len(row) > 4 else ""
+                            ket = row[5].strip() if len(row) > 5 else "-"
                             st = f"{st_misi} | {st_food}"
+                            detail = f"QRIS: {coins} koin ({st_misi}) | Food: {st_food} ({ket})"
                         elif mode == "ganti_nomor":
                             # Kolom CSV Ganti Nomor: [Tanggal & Waktu, Akun, Status, Keterangan]
-                            st = row[2].strip().upper() if len(row) > 2 else ""
+                            st = row[2].strip() if len(row) > 2 else ""
+                            ket = row[3].strip() if len(row) > 3 else "-"
+                            detail = ket
                         else:  # "misi"
                             # Kolom CSV Misi: [Tanggal & Waktu, Username, Koin, Status, Keterangan]
-                            st = row[3].strip().upper() if len(row) > 3 else ""
-                        user_latest_status[user] = st
+                            coins = row[2].strip() if len(row) > 2 else "-"
+                            st = row[3].strip() if len(row) > 3 else ""
+                            ket = row[4].strip() if len(row) > 4 else "-"
+                            detail = f"Bayar QRIS: {coins} koin ({st}) - {ket}"
 
-            for user, st in user_latest_status.items():
-                # Abaikan jika status terakhir adalah error koneksi, timeout, atau flood wait agar bisa diulang
-                if not any(err in st for err in ("FLOOD", "TIMEOUT", "ERROR")):
-                    checked.add(user)
+                        is_err = any(err in st.upper() for err in ("FLOOD", "TIMEOUT", "ERROR"))
+                        records[user] = {
+                            "account": user,
+                            "display": user,
+                            "status": st,
+                            "detail": detail,
+                            "date": date_str,
+                            "is_success": not is_err,
+                        }
         except Exception:
             pass
-    return checked
+    return records
+
+
+def find_matching_record(acc: str, records: Dict[str, Dict[str, Any]], auth_method: str = "auto") -> Optional[Dict[str, Any]]:
+    """Mencari rekaman hasil lama untuk akun, mendukung perbandingan username mentah maupun masked display."""
+    if not acc or not records:
+        return None
+    if acc in records:
+        return records[acc]
+    clean = acc.strip()
+    if clean in records:
+        return records[clean]
+    disp = format_account_display(acc, auth_method)
+    if disp in records:
+        return records[disp]
+    return None
+
+
+def get_checked_usernames(mode: str = "misi"):
+    """Mengambil daftar username yang sudah berhasil dicek sebelumnya dari file CSV (untuk fitur resume)."""
+    records = get_checked_accounts_records(mode)
+    return {user for user, rec in records.items() if rec.get("is_success")}
 
 
 def filter_unprocessed_usernames(usernames, mode: str = "misi"):
@@ -411,6 +460,283 @@ def filter_unprocessed_usernames(usernames, mode: str = "misi"):
     to_process = [u for u in usernames if u not in already_checked]
     skipped_count = len(usernames) - len(to_process)
     return to_process, skipped_count
+
+
+def handle_reuse_or_recheck_wizard(
+    usernames: List[str],
+    mode: str = "misi",
+    auth_method: str = "auto",
+    auto_mode: Optional[str] = None,
+) -> Tuple[str, List[str], List[Dict[str, Any]], Set[str]]:
+    """Wizard interaktif untuk menentukan pemakaian hasil lama (reuse) vs cek ulang per akun.
+    
+    Menu Pilihan:
+      [1] Pakai hasil lama, lewati yang sudah sukses (default jika tekan Enter)
+      [2] Cek ulang semua akun (abaikan hasil lama untuk penentuan antrean)
+      [3] Pilih per akun: mana yang dicek ulang, mana yang pakai hasil lama
+      [b] Kembali ke langkah sebelumnya (ganti sumber akun)
+
+    Mengembalikan:
+      (action, to_process, reused_records, recheck_targets)
+      action: "proceed" (siap eksekusi antrean), "finish" (selesai tanpa antrean), atau "back" (kembali)
+      to_process: daftar akun yang akan dicek bot di run ini
+      reused_records: daftar dict hasil lama yang dipakai ulang
+      recheck_targets: set akun yang dicek ulang (untuk proteksi penimpaan saat timeout/error)
+    """
+    if not usernames:
+        return "proceed", [], [], set()
+
+    records = get_checked_accounts_records(mode)
+    csv_name = {
+        "misi": RESULTS_MISI_FILE.name,
+        "food": RESULTS_FOOD_FILE.name,
+        "both": RESULTS_ALL_FILE.name,
+        "ganti_nomor": RESULTS_GANTI_NOMOR_FILE.name,
+    }.get(mode, "CSV")
+
+    success_accounts = []
+    unprocessed_accounts = []
+
+    for acc in usernames:
+        rec = find_matching_record(acc, records, auth_method)
+        if rec and rec.get("is_success"):
+            rec_copy = dict(rec)
+            rec_copy["display"] = format_account_display(acc, auth_method)
+            rec_copy["account"] = acc
+            success_accounts.append((acc, rec_copy))
+        else:
+            unprocessed_accounts.append(acc)
+
+    # Jika tidak ada satupun akun yang pernah sukses, langsung proses semua akun tanpa bertanya
+    if not success_accounts:
+        return "proceed", usernames, [], set()
+
+    # Mode otomatis (misal dari flag CLI --resume)
+    if auto_mode == "reuse":
+        to_process = list(unprocessed_accounts)
+        reused = [rec for _, rec in success_accounts]
+        if not to_process:
+            return "finish", [], reused, set()
+        return "proceed", to_process, reused, set()
+
+    while True:
+        print(f"\n{GREEN}ℹ️  Ditemukan {len(success_accounts)} dari {len(usernames)} akun sudah ada hasil sukses di CSV ({csv_name}).{RESET}")
+        print(f"{CYAN}{BOLD}PILIH OPSI PEMROSESAN HASIL:{RESET}")
+        print(f"  [1] Pakai hasil lama, lewati yang sudah sukses (default)")
+        print(f"  [2] Cek ulang semua akun (abaikan hasil lama untuk penentuan antrean)")
+        print(f"  [3] Pilih per akun: mana yang dicek ulang, mana yang pakai hasil lama")
+        print(f"  [b] Kembali ke langkah sebelumnya (ganti sumber akun)")
+
+        pilihan = input(f"\n{WHITE}Pilih opsi [1/2/3/b, default: 1]: {RESET}").strip().casefold()
+
+        if pilihan in ("", "1", "default", "y", "ya", "yes"):
+            to_process = list(unprocessed_accounts)
+            reused = [rec for _, rec in success_accounts]
+
+            # Jika semua akun terlewati (to_process kosong)
+            if not to_process:
+                print(f"\n{CYAN}{BOLD}===================================================={RESET}")
+                print(f"♻️  {GREEN}{BOLD}RINGKASAN HASIL LAMA YANG DIPAKAI ULANG ({len(reused)} Akun):{RESET}")
+                print(f"{CYAN}===================================================={RESET}")
+                for idx, r in enumerate(reused, 1):
+                    print(f"  [{idx}] {r['display']} | Status: {r['status']} | {r['detail']} | Tanggal: {r['date']}")
+                print(f"\n{WHITE}Semua akun dalam daftar sudah selesai dicek sebelumnya.{RESET}")
+                print("Pilihan:")
+                print("  [1] Selesai, pakai hasil lama ini saja (default)")
+                print("  [2] Cek ulang sebagian (masuk ke pilihan per akun)")
+                print("  [3] Cek ulang semua")
+
+                sub_c = input(f"{WHITE}Pilih [1/2/3, default: 1]: {RESET}").strip()
+                if sub_c in ("", "1"):
+                    return "finish", [], reused, set()
+                elif sub_c == "2":
+                    pilihan = "3"
+                elif sub_c == "3":
+                    recheck_set = set(acc for acc, _ in success_accounts)
+                    return "proceed", usernames, [], recheck_set
+                else:
+                    return "finish", [], reused, set()
+
+            if pilihan != "3":
+                return "proceed", to_process, reused, set()
+
+        if pilihan == "2":
+            recheck_set = set(acc for acc, _ in success_accounts)
+            return "proceed", usernames, [], recheck_set
+
+        elif pilihan == "3":
+            print(f"\n{CYAN}{BOLD}📋 DAFTAR AKUN YANG SUDAH MEMILIKI HASIL SUKSES:{RESET}")
+            for idx, (acc, rec) in enumerate(success_accounts, 1):
+                disp = format_account_display(acc, auth_method)
+                print(f"  [{idx}] {disp} | Status: {rec['status']} | {rec['detail']} | Tanggal: {rec['date']}")
+
+            print(f"\n{WHITE}Ketik nomor akun yang ingin DICEK ULANG (pisahkan dengan koma atau spasi, misal '1,3').")
+            print(f"Ketik 'semua' untuk cek ulang semua, atau Enter / 'tidak ada' untuk memakai hasil lama semua:{RESET}")
+
+            while True:
+                pilih_str = input(f"{WHITE}Nomor akun yang dicek ulang [default: tidak ada]: {RESET}").strip()
+                if not pilih_str or pilih_str.casefold() in ("tidak ada", "none"):
+                    chosen_indices = []
+                    break
+                elif pilih_str.casefold() in ("semua", "all"):
+                    chosen_indices = list(range(1, len(success_accounts) + 1))
+                    break
+                else:
+                    tokens = [t.strip() for t in re.split(r"[,;\s]+", pilih_str) if t.strip()]
+                    valid = True
+                    temp_indices = []
+                    for tok in tokens:
+                        if not tok.isdigit():
+                            print(f"{RED}❌ Input '{tok}' bukan angka valid! Masukkan nomor urut 1-{len(success_accounts)}.{RESET}")
+                            valid = False
+                            break
+                        num = int(tok)
+                        if num < 1 or num > len(success_accounts):
+                            print(f"{RED}❌ Nomor '{num}' di luar rentang (1-{len(success_accounts)})! Silakan coba lagi.{RESET}")
+                            valid = False
+                            break
+                        if num not in temp_indices:
+                            temp_indices.append(num)
+                    if valid:
+                        chosen_indices = temp_indices
+                        break
+
+            chosen_set = set(chosen_indices)
+            recheck_accs = [success_accounts[i - 1][0] for i in chosen_indices]
+            recheck_targets = set(recheck_accs)
+            reused = [success_accounts[i - 1][1] for i in range(1, len(success_accounts) + 1) if i not in chosen_set]
+
+            # Pertahankan urutan asli usernames
+            to_process = [acc for acc in usernames if acc in unprocessed_accounts or acc in recheck_targets]
+
+            # Jika setelah pilihan per akun to_process tetap kosong
+            if not to_process:
+                print(f"\n{CYAN}{BOLD}===================================================={RESET}")
+                print(f"♻️  {GREEN}{BOLD}RINGKASAN HASIL LAMA YANG DIPAKAI ULANG ({len(reused)} Akun):{RESET}")
+                print(f"{CYAN}===================================================={RESET}")
+                for idx, r in enumerate(reused, 1):
+                    print(f"  [{idx}] {r['display']} | Status: {r['status']} | {r['detail']} | Tanggal: {r['date']}")
+                print(f"\n{WHITE}Semua akun dalam daftar sudah selesai dicek sebelumnya.{RESET}")
+                print("Pilihan:")
+                print("  [1] Selesai, pakai hasil lama ini saja (default)")
+                print("  [2] Cek ulang sebagian (masuk ke pilihan per akun)")
+                print("  [3] Cek ulang semua")
+
+                sub_c = input(f"{WHITE}Pilih [1/2/3, default: 1]: {RESET}").strip()
+                if sub_c in ("", "1"):
+                    return "finish", [], reused, set()
+                elif sub_c == "2":
+                    continue
+                elif sub_c == "3":
+                    recheck_set = set(acc for acc, _ in success_accounts)
+                    return "proceed", usernames, [], recheck_set
+                else:
+                    return "finish", [], reused, set()
+
+            return "proceed", to_process, reused, recheck_targets
+
+        elif pilihan in ("b", "back", "kembali"):
+            return "back", [], [], set()
+
+        else:
+            print(f"{YELLOW}⚠️ Pilihan '{pilihan}' tidak valid! Silakan pilih 1, 2, 3, atau b.{RESET}")
+
+
+def render_combined_execution_summary(
+    mode: str,
+    total_all: int,
+    total_processed: int,
+    new_success: int,
+    new_fail: int,
+    new_error: int,
+    reused_records: Optional[List[Dict[str, Any]]] = None,
+    preserved_records: Optional[List[Dict[str, Any]]] = None,
+    auth_method: str = "auto",
+) -> str:
+    """Menghasilkan teks laporan akhir 3 kelompok: baru dicek, dipakai ulang, dan total gabungan."""
+    reused = reused_records or []
+    preserved = preserved_records or []
+    total_reused = len(reused)
+    total_preserved = len(preserved)
+    total_success_combined = new_success + total_reused + total_preserved
+
+    csv_name = {
+        "misi": RESULTS_MISI_FILE.name,
+        "food": RESULTS_FOOD_FILE.name,
+        "both": RESULTS_ALL_FILE.name,
+        "ganti_nomor": RESULTS_GANTI_NOMOR_FILE.name,
+    }.get(mode, "CSV")
+    txt_name = {
+        "misi": RESULTS_MISI_TXT.name,
+        "food": RESULTS_FOOD_TXT.name,
+        "both": RESULTS_ALL_TXT.name,
+        "ganti_nomor": RESULTS_GANTI_NOMOR_TXT.name,
+    }.get(mode, "TXT")
+
+    lines = []
+    lines.append(f"{CYAN}{BOLD}======================================================================{RESET}")
+    lines.append(f"📊 {BOLD}LAPORAN RINGKASAN AKHIR EKSEKUSI (REKAPITULASI GABUNGAN){RESET}")
+    lines.append(f"{CYAN}======================================================================{RESET}")
+    lines.append(f"🎯 Total Keseluruhan Akun : {BOLD}{total_all} akun{RESET}")
+    lines.append("")
+
+    # [A] BARU DICEK DI RUN INI
+    lines.append(f"{CYAN}[A] HASIL DICEK DI RUN INI ({total_processed} akun):{RESET}")
+    if total_processed > 0:
+        lines.append(f"    ✅ Sukses / Valid        : {GREEN}{BOLD}{new_success}{RESET} akun")
+        lines.append(f"    ⚠️  Gagal / Belum Memenuhi : {YELLOW}{new_fail}{RESET} akun")
+        lines.append(f"    ❌ Error / Timeout       : {RED}{new_error}{RESET} akun")
+        if total_preserved > 0:
+            lines.append(f"    🛡️  Hasil Lama Dipertahankan: {GREEN}{BOLD}{total_preserved}{RESET} akun (cek ulang timeout/error)")
+    else:
+        lines.append(f"    ℹ️  Tidak ada akun yang dicek di run ini (semua memakai hasil sukses sebelumnya).")
+    lines.append("")
+
+    # [B] DIPAKAI ULANG DARI HASIL LAMA
+    lines.append(f"{CYAN}[B] DIPAKAI ULANG DARI HASIL LAMA ({total_reused} akun):{RESET}")
+    if total_reused > 0:
+        for idx, rec in enumerate(reused, 1):
+            disp = rec.get("display") or format_account_display(rec.get("account", "-"), auth_method)
+            st = rec.get("status", "-")
+            det = rec.get("detail", "-")
+            dt = rec.get("date", "-")
+            lines.append(f"    [{idx}] {disp} | Status: {st} | {det} | Tanggal: {dt}")
+    else:
+        lines.append(f"    ℹ️  Tidak ada akun yang memakai hasil lama (semua akun dicek di antrean run ini).")
+    lines.append("")
+
+    # [C] TOTAL REKAPITULASI GABUNGAN
+    lines.append(f"{CYAN}[C] TOTAL REKAPITULASI GABUNGAN:{RESET}")
+    lines.append(f"    🏆 Total Akun Sukses / Layak : {GREEN}{BOLD}{total_success_combined}{RESET} dari {total_all} akun")
+    lines.append(f"    📂 Rincian data tersimpan di: {csv_name} (CSV) & {txt_name} (TXT)")
+    lines.append(f"{CYAN}======================================================================{RESET}")
+
+    return "\n".join(lines)
+
+
+def print_combined_execution_summary(
+    mode: str,
+    total_all: int,
+    total_processed: int,
+    new_success: int,
+    new_fail: int,
+    new_error: int,
+    reused_records: Optional[List[Dict[str, Any]]] = None,
+    preserved_records: Optional[List[Dict[str, Any]]] = None,
+    auth_method: str = "auto",
+):
+    """Menampilkan laporan ringkasan akhir gabungan langsung ke stdout."""
+    print("\n" + render_combined_execution_summary(
+        mode=mode,
+        total_all=total_all,
+        total_processed=total_processed,
+        new_success=new_success,
+        new_fail=new_fail,
+        new_error=new_error,
+        reused_records=reused_records,
+        preserved_records=preserved_records,
+        auth_method=auth_method,
+    ) + "\n")
 
 
 def render_progress_bar(current: int, total: int, width: int = 25):
@@ -757,6 +1083,212 @@ def detect_bot_error(text: str):
     return None
 
 
+def is_bot_intermediate_reply(text: str) -> bool:
+    """Mengecek apakah teks respons bot merupakan pesan perantara / loading / prompt input
+    yang belum merupakan hasil akhir pengecekan (polling harus terus berlanjut)."""
+    raw_str = (text or "").strip()
+    if not raw_str:
+        return True
+    clean = " ".join(raw_str.casefold().split())
+    if not clean:
+        return True
+
+    # 1. Pesan prompt input akun / cookie / link (bukan hasil evaluasi akhir)
+    prompt_indicators = (
+        "masukkan email",
+        "kirim email",
+        "masukkan username",
+        "kirim username",
+        "masukkan id",
+        "kirim id",
+        "masukkan cookie",
+        "kirim cookie",
+        "masukkan link",
+        "kirim link",
+        "email / username / id",
+        "email/username/id",
+        "silakan masukkan",
+        "silahkan masukkan",
+        "kirim raw cookie",
+    )
+    if any(p in clean for p in prompt_indicators):
+        return True
+
+    # 2. Pesan konfirmasi pembatalan (hasil klik Batal sebelumnya)
+    cancel_confirmations = (
+        "dibatalkan",
+        "dibatalkan.",
+        "proses dibatalkan",
+        "proses dibatalkan.",
+        "aksi dibatalkan",
+        "aksi dibatalkan.",
+        "permintaan dibatalkan",
+        "permintaan dibatalkan.",
+    )
+    if clean in cancel_confirmations:
+        return True
+
+    # KECUALI jika mengandung kata hasil akhir definitif (prioritaskan hasil akhir jika ada):
+    final_indicators = (
+        "berhasil",
+        "gagal",
+        "maaf",
+        "tidak memenuhi",
+        "sudah diklaim",
+        "telah diklaim",
+        "sudah pernah",
+        "kuota",
+        "expired",
+        "kadaluwarsa",
+        "kedaluwarsa",
+        "tidak ditemukan",
+        "tidak valid",
+        "failed",
+        "belum punya nomor",
+        "tidak punya nomor",
+        "bukan milikmu",
+        "dibatasi",
+        "banned",
+    )
+    if any(k in clean for k in final_indicators):
+        # Jika ada kata di atas tetapi teksnya murni frasa loading klaim berakhiran titik-titik
+        if "klaim" in clean and (clean.endswith("...") or clean.endswith("…")):
+            return True
+        return False
+
+    # 3. Mengandung simbol loading ⏳ atau ⌛ tanpa kata hasil akhir
+    if "⏳" in raw_str or "⌛" in raw_str:
+        return True
+
+    # 4. Kalimat klaim yang berakhiran titik-titik proses
+    if "klaim" in clean and (clean.endswith("...") or clean.endswith("…")):
+        return True
+
+    # 5. Kata kunci proses / loading umum
+    loading_keywords = (
+        "memproses",
+        "sedang memproses",
+        "sedang diproses",
+        "diproses",
+        "mohon tunggu",
+        "harap tunggu",
+        "tunggu sebentar",
+        "antre",
+        "antri",
+        "loading",
+        "processing",
+        "please wait",
+        "proses checkin",
+    )
+    if any(k in clean for k in loading_keywords):
+        return True
+
+    return False
+
+
+def detect_bot_definitive_negative(text: str, mode: str = "general") -> Optional[Tuple[str, str]]:
+    """Mendeteksi apakah balasan bot merupakan hasil negatif definitif (bukan loading / bukan timeout).
+    
+    Mengembalikan (status, detail) jika definitif negatif, atau None jika bukan negatif definitif.
+    """
+    raw_str = (text or "").strip()
+    if not raw_str:
+        return None
+
+    # Pastikan bukan pesan perantara / loading / prompt input
+    if is_bot_intermediate_reply(raw_str):
+        return None
+
+    clean = " ".join(raw_str.casefold().split())
+
+    # 1. Pesan kesalahan standar dari detect_bot_error()
+    err = detect_bot_error(raw_str)
+    if err:
+        return err, raw_str
+
+    # 2. Kasus khusus: Akun belum punya nomor HP
+    if any(k in clean for k in ("belum punya nomor hp", "belum punya nomor", "tidak punya nomor hp", "tidak memiliki nomor hp")):
+        if mode == "ganti_nomor":
+            return "GAGAL", "Belum punya nomor HP — ganti lewat /verify"
+        return "GAGAL", raw_str
+
+    # 3. Pesan diawali atau mengandung simbol ❌
+    if "❌" in raw_str:
+        detail = raw_str.replace("❌", "").strip() or raw_str
+        return "GAGAL", detail
+
+    # 4. Akun / user tidak ditemukan / tidak terdaftar
+    if any(k in clean for k in (
+        "tidak ditemukan",
+        "user not found",
+        "akun tidak ditemukan",
+        "tidak terdaftar",
+        "akun tidak terdaftar",
+        "user tidak terdaftar",
+    )):
+        return "GAGAL", raw_str
+
+    # 5. Tidak valid / format salah / expired
+    if any(k in clean for k in (
+        "tidak valid",
+        "invalid",
+        "voucher tidak valid",
+        "cookie tidak valid",
+        "invalid cookie",
+        "cookie expired",
+        "cookie kadaluarsa",
+        "cookie sudah kadaluwarsa",
+        "format cookie salah",
+    )):
+        return "GAGAL", raw_str
+
+    # 6. Tidak memenuhi kriteria / syarat klaim
+    if (
+        "belum memenuhi kriteria" in clean
+        or "tidak memenuhi kriteria" in clean
+        or "belum memenuhi syarat" in clean
+        or "tidak memenuhi syarat" in clean
+        or "tidak memenuhi" in clean
+        or "belum memenuhi" in clean
+        or "ineligible" in clean
+        or "not eligible" in clean
+    ):
+        return "GAGAL", raw_str
+
+    # 7. Kuota habis / limit
+    if "kuota" in clean and any(w in clean for w in ("habis", "penuh", "limit", "kosong", "mencapai batas")):
+        return "GAGAL", raw_str
+
+    # 8. Kata gagal / ditolak definitif
+    if any(k in clean for k in ("gagal", "failed", "ditolak")):
+        return "GAGAL", raw_str
+
+    # 9. Maaf ditolak
+    if "maaf" in clean and any(w in clean for w in ("tidak", "belum", "gagal", "batal", "bukan")):
+        return "GAGAL", raw_str
+
+    return None
+
+
+def classify_bot_final_reply(text: str, mode: str = "general") -> Optional[Tuple[str, str, str]]:
+    """Helper terpusat untuk mengklasifikasikan balasan bot final di seluruh mode cek.
+    
+    Mengembalikan:
+      - None                         : Jika pesan perantara/loading (polling lanjut)
+      - ("NEGATIVE", status, detail) : Jika balasan negatif definitif (polling segera berhenti)
+    """
+    if is_bot_intermediate_reply(text):
+        return None
+
+    neg = detect_bot_definitive_negative(text, mode=mode)
+    if neg:
+        status, detail = neg
+        return "NEGATIVE", status, detail
+
+    return None
+
+
+
 # =====================================================================
 # 1. FITUR CEK MISI BAYAR QRIS (CHECK-IN)
 # =====================================================================
@@ -910,13 +1442,25 @@ async def check_one_mission(client, username: str, auth_method: str = "username"
                 continue
             last_seen[msg.id] = cache_key
 
+            # 1. Abaikan pesan proses / loading / perantara
+            if is_bot_intermediate_reply(text):
+                continue
+
+            # 2. Error bot umum
             err = detect_bot_error(text)
             if err:
                 return None, err, text
 
+            # 3. Hasil QRIS spesifik
             result = parse_qris_result(text, has_finished_button=has_btn)
             if result:
                 return result
+
+            # 4. Balasan negatif definitif non-QRIS (misal akun tidak ditemukan, belum punya no HP, dsb.)
+            neg = detect_bot_definitive_negative(text, mode="misi")
+            if neg:
+                status_neg, detail_neg = neg
+                return None, status_neg, detail_neg
 
             # Catat pesan yang memiliki format misi untuk evaluasi akhir jika timeout
             if any(h in text.casefold() for h in ("misi checkin", "misi check-in", "misi check in", "claim misi")):
@@ -1310,11 +1854,17 @@ async def check_one_food(client, username: str, auth_method: str = "username"):
         # HANYA tangani pesan yang masuk setelah data akun dikirim (m.id > sent_msg.id)
         candidates = sorted((m for m in messages if m.id > sent_msg.id and not m.out), key=lambda m: m.id)
         for msg in candidates:
-            # Cek pesan teks penolakan bot
+            # Cek pesan teks penolakan / balasan negatif definitif bot (bukan file HTML)
             text = (msg.text or "").strip()
-            err = detect_bot_error(text)
-            if err:
-                return False, err, text, False, False
+            if text and not is_bot_intermediate_reply(text):
+                err = detect_bot_error(text)
+                if err:
+                    return False, err, text, False, False
+
+                neg = detect_bot_definitive_negative(text, mode="food")
+                if neg:
+                    status_neg, detail_neg = neg
+                    return False, status_neg, detail_neg, False, False
 
             # Cek kiriman file HTML
             if msg.document:
@@ -1880,13 +2430,23 @@ async def check_one_change_number(client, username: str, auth_method: str = "use
                 continue
             lower_text = text.casefold()
 
-            # Deteksi error bot
+            # 1. Abaikan pesan perantara / loading / prompt input / konfirmasi pembatalan
+            if is_bot_intermediate_reply(text):
+                continue
+
+            # 2. Deteksi error bot standar
             err = detect_bot_error(text)
             if err:
                 await click_cancel_button(client, msg, sent_msg.id)
                 return False, err, text
 
-            # Deteksi OTP
+            # 3. Kasus spesifik: Akun belum punya nomor HP
+            if any(k in lower_text for k in ("belum punya nomor hp", "belum punya nomor", "tidak punya nomor hp", "tidak memiliki nomor hp")):
+                if getattr(msg, "buttons", None):
+                    await click_cancel_button(client, msg, sent_msg.id)
+                return False, "GAGAL", "Belum punya nomor HP — ganti lewat /verify"
+
+            # 4. Deteksi OTP
             has_otp = (
                 "otp akan dikirim" in lower_text
                 or "verifikasi lewat otp" in lower_text
@@ -1896,7 +2456,7 @@ async def check_one_change_number(client, username: str, auth_method: str = "use
                 await click_cancel_button(client, msg, sent_msg.id)
                 return False, "GAGAL", "Meminta OTP — dibatalkan, tidak dilanjutkan"
 
-            # Deteksi Pilih Metode / Verifikasi Identitas
+            # 5. Deteksi Pilih Metode / Verifikasi Identitas
             if "pilih metode" in lower_text or "butuh verifikasi identitas" in lower_text:
                 has_password_or_pin = False
                 buttons = getattr(msg, "buttons", None) or []
@@ -1915,6 +2475,14 @@ async def check_one_change_number(client, username: str, auth_method: str = "use
                 else:
                     await click_cancel_button(client, msg, sent_msg.id)
                     return False, "GAGAL", "Metode verifikasi bukan Password/PIN — dibatalkan"
+
+            # 6. Deteksi balasan negatif definitif lainnya (misal ❌, gagal, akun tidak terdaftar, dll.)
+            neg = detect_bot_definitive_negative(text, mode="ganti_nomor")
+            if neg:
+                status_neg, detail_neg = neg
+                if getattr(msg, "buttons", None):
+                    await click_cancel_button(client, msg, sent_msg.id)
+                return False, status_neg, detail_neg
 
         await asyncio.sleep(POLL_INTERVAL)
 
